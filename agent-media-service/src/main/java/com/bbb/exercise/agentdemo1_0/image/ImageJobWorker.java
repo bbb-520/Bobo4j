@@ -1,7 +1,7 @@
 package com.bbb.exercise.agentdemo1_0.image;
 
 import com.bbb.exercise.agentdemo1_0.oss.OssStorageService;
-import com.bbb.exercise.agentdemo1_0.auth.UserApiKeyService;
+import com.bbb.exercise.agentdemo.common.client.AuthCredentialClient;
 import com.bbb.exercise.agentdemo1_0.identity.ChatIdentity;
 import com.bbb.exercise.agentdemo1_0.model.ModelCapability;
 import com.bbb.exercise.agentdemo.common.client.AuthModelClient;
@@ -25,7 +25,7 @@ public class ImageJobWorker {
 
     private final ImageJobService jobs;
     private final OssStorageService storage;
-    private final UserApiKeyService userKeys;
+    private final AuthCredentialClient userKeys;
     private final AuthModelClient modelProfiles;
     private final ImageGenerationProviderRegistry providers;
 

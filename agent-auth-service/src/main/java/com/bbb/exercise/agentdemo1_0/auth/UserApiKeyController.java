@@ -1,6 +1,6 @@
 package com.bbb.exercise.agentdemo1_0.auth;
 
-import com.bbb.exercise.agentdemo1_0.identity.ChatIdentityResolver;
+import com.bbb.exercise.agentdemo1_0.identity.AuthIdentityResolver;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -10,10 +10,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/settings/keys")
 public class UserApiKeyController {
-    private final ChatIdentityResolver identities;
+    private final AuthIdentityResolver identities;
     private final UserApiKeyService keys;
 
-    public UserApiKeyController(ChatIdentityResolver identities, UserApiKeyService keys) {
+    public UserApiKeyController(AuthIdentityResolver identities, UserApiKeyService keys) {
         this.identities = identities;
         this.keys = keys;
     }

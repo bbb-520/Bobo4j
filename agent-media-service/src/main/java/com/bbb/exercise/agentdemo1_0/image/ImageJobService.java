@@ -1,7 +1,7 @@
 package com.bbb.exercise.agentdemo1_0.image;
 
 import com.bbb.exercise.agentdemo1_0.config.OssProperties;
-import com.bbb.exercise.agentdemo1_0.auth.UserApiKeyService;
+import com.bbb.exercise.agentdemo.common.client.AuthCredentialClient;
 import com.bbb.exercise.agentdemo1_0.model.ModelCapability;
 import com.bbb.exercise.agentdemo.common.client.AuthModelClient;
 import com.bbb.exercise.agentdemo1_0.model.ModelProvider;
@@ -32,7 +32,7 @@ public class ImageJobService {
     private final ImageAssetService assets;
     private final OssProperties ossProperties;
     private final OssStorageService storage;
-    private final UserApiKeyService userKeys;
+    private final AuthCredentialClient userKeys;
     private final AuthModelClient modelProfiles;
 
     public JobView create(ChatIdentity identity, String conversationId, String question,

@@ -1,6 +1,6 @@
 package com.bbb.exercise.agentdemo1_0.chat;
 
-import com.bbb.exercise.agentdemo1_0.auth.UserApiKeyService.UserApiKeys;
+import com.bbb.exercise.agentdemo.common.client.AuthCredentialClient.UserApiKeys;
 import com.bbb.exercise.agentdemo.common.client.AuthModelClient;
 import com.bbb.exercise.agentdemo1_0.model.ModelProviderRegistry;
 import org.springframework.ai.chat.client.ChatClient;

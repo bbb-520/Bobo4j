@@ -1,6 +1,6 @@
 package com.bbb.exercise.agentdemo1_0.model;
 
-import com.bbb.exercise.agentdemo1_0.identity.ChatIdentityResolver;
+import com.bbb.exercise.agentdemo1_0.identity.AuthIdentityResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,7 +16,7 @@ import java.util.Map;
 @RequestMapping("/api/settings/models")
 @RequiredArgsConstructor
 public class ModelProfileController {
-    private final ChatIdentityResolver identities;
+    private final AuthIdentityResolver identities;
     private final ModelProfileService profiles;
     private final ModelProviderRegistry registry;
 

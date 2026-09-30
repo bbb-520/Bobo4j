@@ -1,6 +1,6 @@
 package com.bbb.exercise.agentdemo1_0.zine;
 
-import com.bbb.exercise.agentdemo1_0.auth.UserApiKeyService;
+import com.bbb.exercise.agentdemo.common.client.AuthCredentialClient;
 import com.bbb.exercise.agentdemo1_0.identity.ChatIdentityResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -23,7 +23,7 @@ public class ZineController {
 
     private final ZineGenerationService generationService;
     private final ChatIdentityResolver identities;
-    private final UserApiKeyService userKeys;
+    private final AuthCredentialClient userKeys;
 
     @PostMapping(value = "/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
