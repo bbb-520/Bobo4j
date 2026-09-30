@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f3eddf" />
+  <title>拾景纸刊 · Image Rewrite</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="wordmark" href="/" aria-label="拾景纸刊首页">
+        <span class="wordmark-cn">拾景</span>
+        <span class="wordmark-en">ZINE / 01</span>
+      </a>
+      <p class="topbar-note">image rewrite studio</p>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">一张照片 · 一次重新编排</p>
+        <h1 id="page-title">把普通画面，<br /><em>编成一页纸刊。</em></h1>
+        <p class="intro">上传一张照片，选择保留现场，或把它蒸馏成一件独立的纸上作品。模型会先阅读关系，再决定哪些留下，哪些沉默。</p>
+
+        <div class="mode-picker" aria-label="创作路径">
+          <button class="mode-card is-selected" type="button" data-mode="gathered" aria-pressed="true">
+            <span class="mode-index">01</span>
+            <span class="mode-name">实景拼贴</span>
+            <span class="mode-desc">照片作为真实锚点，向纸面延伸。</span>
+          </button>
+          <button class="mode-card" type="button" data-mode="distillation" aria-pressed="false">
+            <span class="mode-index">02</span>
+            <span class="mode-name">影像蒸馏</span>
+            <span class="mode-desc">照片只留下语义与情绪，不进入成品。</span>
+          </button>
+        </div>
+
+        <p class="license-note">个人非商业原型 · source-derived paper art</p>
+      </div>
+
+      <form class="workbench" id="zine-form">
+        <div class="workbench-head">
+          <div>
+            <span class="section-kicker">当前工作台</span>
+            <h2 id="mode-label">实景拼贴</h2>
+          </div>
+          <span class="folio-number">A—001</span>
+        </div>
+
+        <section class="api-key-panel" aria-labelledby="api-key-title">
+          <div>
+            <span class="section-kicker">你的模型凭据</span>
+            <h2 id="api-key-title">阿里云 API Key</h2>
+            <p id="api-key-status" class="api-key-status">尚未配置。Key 会加密保存在当前用户下。</p>
+          </div>
+          <div class="api-key-actions">
+            <input id="qwen-api-key" type="password" autocomplete="new-password" placeholder="粘贴 DashScope API Key" aria-label="阿里云 API Key" />
+            <button id="save-api-key" type="button">保存 Key</button>
+            <button id="clear-api-key" type="button" hidden>清除</button>
+          </div>
+        </section>
+
+        <div class="paper-stage" id="paper-stage">
+          <div class="empty-state" id="empty-state">
+            <div class="torn-mark" aria-hidden="true"></div>
+            <p class="empty-title">把照片放在这里</p>
+            <p class="empty-caption">拖拽图片，或点击选择文件<br />JPG · PNG · WEBP · 10 MB 以内</p>
+            <label class="file-button" for="image-input">选择图片</label>
+            <input id="image-input" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/bmp,image/tiff,image/gif" />
+          </div>
+          <div class="preview-wrap" id="preview-wrap" hidden>
+            <img id="source-preview" alt="待编辑的原始图片" />
+            <span class="preview-label">source / original</span>
+            <button class="replace-button" id="replace-button" type="button">换一张</button>
+          </div>
+          <div class="result-wrap" id="result-wrap" hidden>
+            <img id="result-preview" alt="AI 生成的纸刊图片" />
+            <span class="preview-label">new page / generated</span>
+            <a class="download-link" id="download-link" href="#" target="_blank" rel="noreferrer">打开成品</a>
+          </div>
+          <div class="scan-line" aria-hidden="true"></div>
+        </div>
+
+        <div class="controls">
+          <label class="field-label" for="guidance">你想保留什么？<span>可选</span></label>
+          <textarea id="guidance" name="guidance" rows="2" maxlength="500" placeholder="例如：保留人物与远方山脊的关系，蓝色只用来连接两者"></textarea>
+          <div class="control-row">
+            <label class="select-field" for="language">
+              <span class="field-label">纸上文字</span>
+              <select id="language" name="language">
+                <option value="en">English / 默认</option>
+                <option value="zh">中文</option>
+                <option value="bilingual">中英双语</option>
+              </select>
+            </label>
+            <label class="text-field" for="text">
+              <span class="field-label">指定短句<span>可选</span></span>
+              <input id="text" name="text" maxlength="80" placeholder="留给这一页的话" />
+            </label>
+          </div>
+        </div>
+
+        <div class="form-footer">
+          <p class="status" id="status" role="status" aria-live="polite">先放入一张照片。</p>
+          <button class="generate-button" id="generate-button" type="submit" disabled>
+            <span class="button-label">开始生成</span>
+            <span class="button-spinner" aria-hidden="true"></span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <footer class="footer">
+      <span>真景为锚 · 纸面会呼吸</span>
+      <span>local studio / no source files saved</span>
+    </footer>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -26,4 +26,27 @@ class AgentWorkflowServiceTest {
         assertThatThrownBy(() -> service.advance(run.id(), RunStatus.APPROVED))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void rejectsAnonymousOrMissingOwner() {
+        AgentWorkflowService service = new AgentWorkflowService();
+        assertThatThrownBy(() -> service.start("REVISE", "draft", "anonymous"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("用户身份");
+        assertThatThrownBy(() -> service.start("REVISE", "draft", " "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("用户身份");
+    }
+
+    @Test
+    void ownerCannotReadOrAdvanceAnotherOwnersRun() {
+        AgentWorkflowService service = new AgentWorkflowService();
+        var run = service.start("REVISE", "draft", "u1");
+
+        assertThat(service.get(run.id(), "u2")).isNull();
+        assertThatThrownBy(() -> service.advance(run.id(), RunStatus.REVIEWING, "u2"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不存在");
+        assertThat(service.get(run.id(), "u1")).isNotNull();
+    }
 }

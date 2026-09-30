@@ -6,9 +6,10 @@ function Assert-Healthy([string]$Url) {
     Write-Host "OK $Url"
 }
 
-Assert-Healthy 'http://localhost:8848/nacos/actuator/health'
+Assert-Healthy 'http://localhost:8848/nacos/v1/ns/operator/metrics'
 Assert-Healthy 'http://localhost:18000/actuator/health'
 Assert-Healthy 'http://localhost:18081/actuator/health'
+Assert-Healthy 'http://localhost:18085/actuator/health'
 Assert-Healthy 'http://localhost:18082/actuator/health'
 Assert-Healthy 'http://localhost:18083/actuator/health'
 Assert-Healthy 'http://localhost:18084/actuator/health'

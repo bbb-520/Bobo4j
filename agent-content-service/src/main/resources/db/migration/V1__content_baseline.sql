@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS bobo_world_item (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    tenant_id VARCHAR(128) NOT NULL,
+    user_id VARCHAR(255) NOT NULL,
+    source_job_id CHAR(36) NOT NULL,
+    image_object_key VARCHAR(512) NOT NULL,
+    caption VARCHAR(500) NULL,
+    anonymous TINYINT(1) NOT NULL DEFAULT 1,
+    visibility VARCHAR(16) NOT NULL DEFAULT 'PUBLIC',
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    display_name_snapshot VARCHAR(64) NULL,
+    version INT NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL,
+    updated_at DATETIME(3) NOT NULL,
+    deleted_at DATETIME(3) NULL,
+    cleanup_pending TINYINT(1) NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_bobo_world_owner_job (tenant_id(64), user_id(64), source_job_id),
+    KEY idx_bobo_world_public (visibility, status, created_at, id),
+    KEY idx_bobo_world_owner (tenant_id(64), user_id(64), created_at, id),
+    KEY idx_bobo_world_cleanup (status, cleanup_pending, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

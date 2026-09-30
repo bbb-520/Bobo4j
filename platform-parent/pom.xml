@@ -10,7 +10,7 @@
         <relativePath/>
     </parent>
     <groupId>com.bbb.exercise</groupId>
-    <artifactId>agent-platform-parent</artifactId>
+    <artifactId>platform-parent</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
     <properties>

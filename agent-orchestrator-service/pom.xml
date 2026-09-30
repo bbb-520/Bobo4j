@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.bbb.exercise</groupId>
-        <artifactId>agent-platform-parent</artifactId>
+        <artifactId>platform-parent</artifactId>
         <version>0.0.1-SNAPSHOT</version>
         <relativePath>../platform-parent/pom.xml</relativePath>
     </parent>
@@ -17,17 +17,29 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.bbb.exercise</groupId>
-            <artifactId>agent-model-core</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
         </dependency>
         <dependency>
             <groupId>com.alibaba.cloud</groupId>

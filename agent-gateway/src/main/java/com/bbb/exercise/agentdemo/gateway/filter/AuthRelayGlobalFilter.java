@@ -15,11 +15,14 @@ public class AuthRelayGlobalFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String userId = exchange.getRequest().getHeaders().getFirst(USER_ID);
-        String tenantId = exchange.getRequest().getHeaders().getFirst(TENANT_ID);
         ServerHttpRequest.Builder request = exchange.getRequest().mutate();
-        if (userId != null && !userId.isBlank()) request.header(USER_ID, userId);
-        if (tenantId != null && !tenantId.isBlank()) request.header(TENANT_ID, tenantId);
+        // Browser headers are not authenticated principals. Preserve cookies for
+        // session validation by services, but never relay caller-supplied identity.
+        request.headers(headers -> {
+            headers.remove(USER_ID);
+            headers.remove(TENANT_ID);
+            headers.remove("X-Internal-Principal");
+        });
         return chain.filter(exchange.mutate().request(request.build()).build());
     }
 

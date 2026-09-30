@@ -1,22 +1,35 @@
 services:
   agent-chat-service:
     build:
-      context: .
-      dockerfile: Dockerfile.chat
+      context: ..
+      dockerfile: Dockerfile.service
+      args:
+        JAR_FILE: agent-chat-service/target/agent-chat-service-0.0.1-SNAPSHOT.jar
     environment:
-      SERVER_PORT: 18080
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
+      SERVER_PORT: 18085
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
       MYSQL_HOST: mysql
       MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
       MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
       REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
+      SPRING_AI_CHAT_MEMORY_REPOSITORY_REDIS_HOST: redis
+      SPRING_AI_CHAT_MEMORY_REPOSITORY_REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
+      SPRING_AI_CHAT_MEMORY_REPOSITORY_REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
     ports:
-      - "18080:18080"
+      - "18085:18085"
     depends_on:
       nacos: { condition: service_healthy }
       mysql: { condition: service_healthy }
@@ -24,72 +37,132 @@ services:
 
   agent-gateway:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-gateway/target/agent-gateway-0.0.1-SNAPSHOT.jar
     environment:
       SERVER_PORT: 18000
       NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
     ports:
       - "18000:18000"
     depends_on:
       nacos: { condition: service_healthy }
+      agent-auth-service: { condition: service_started }
+      agent-chat-service: { condition: service_started }
+      agent-media-service: { condition: service_started }
+      agent-content-service: { condition: service_started }
+      agent-orchestrator-service: { condition: service_started }
 
   agent-auth-service:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar
     environment:
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
       SERVER_PORT: 18081
       NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
       - "18081:18081"
     depends_on:
       nacos: { condition: service_healthy }
+      mysql: { condition: service_healthy }
 
   agent-media-service:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-media-service/target/agent-media-service-0.0.1-SNAPSHOT.jar
     environment:
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
       SERVER_PORT: 18082
       NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
       - "18082:18082"
     depends_on:
       nacos: { condition: service_healthy }
+      mysql: { condition: service_healthy }
 
   agent-content-service:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-content-service/target/agent-content-service-0.0.1-SNAPSHOT.jar
     environment:
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
       SERVER_PORT: 18083
       NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
       - "18083:18083"
     depends_on:
       nacos: { condition: service_healthy }
+      mysql: { condition: service_healthy }
 
   agent-orchestrator-service:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-orchestrator-service/target/agent-orchestrator-service-0.0.1-SNAPSHOT.jar
     environment:
+      AUTH_SERVICE_URL: http://agent-auth-service:18081
       SERVER_PORT: 18084
       NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
       - "18084:18084"
     depends_on:
       nacos: { condition: service_healthy }
+      mysql: { condition: service_healthy }

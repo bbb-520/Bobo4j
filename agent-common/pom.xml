@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.bbb.exercise</groupId>
-        <artifactId>agent-platform-parent</artifactId>
+        <artifactId>platform-parent</artifactId>
         <version>0.0.1-SNAPSHOT</version>
         <relativePath>../platform-parent/pom.xml</relativePath>
     </parent>
@@ -23,6 +23,18 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>1.20.6</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <version>1.20.6</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -1,13 +1,94 @@
 package com.bbb.exercise.agentdemo.mediaservice;
 
+import com.bbb.exercise.agentdemo.common.security.PrincipalKeyRing;
+import com.bbb.exercise.agentdemo.common.security.SignedPrincipal;
+import com.bbb.exercise.agentdemo1_0.identity.ChatIdentity;
+import com.bbb.exercise.agentdemo1_0.image.ImageAssetService;
+import com.bbb.exercise.agentdemo1_0.image.ImageJobService;
+import com.bbb.exercise.agentdemo1_0.dto.ChatAttachmentRequest;
+import com.bbb.exercise.agentdemo1_0.oss.OssStorageService;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/internal/media")
 public class InternalMediaController {
+    private final ImageAssetService assets;
+    private final OssStorageService storage;
+    private final ImageJobService jobs;
+    private final PrincipalKeyRing keys;
+
+    @Autowired
+    public InternalMediaController(ImageAssetService assets, OssStorageService storage,
+                                   ImageJobService jobs,
+                                   @Value("${app.security.internal-principal-secrets:}") String secrets,
+                                   @Value("${app.security.internal-principal-active-key-id:current}") String active) {
+        this(assets, storage, jobs, new PrincipalKeyRing(secrets, active));
+    }
+
+    public InternalMediaController(ImageAssetService assets, OssStorageService storage,
+                                   PrincipalKeyRing keys) {
+        this(assets, storage, null, keys);
+    }
+
+    public InternalMediaController(ImageAssetService assets, OssStorageService storage,
+                                   ImageJobService jobs, PrincipalKeyRing keys) {
+        this.assets = assets;
+        this.storage = storage;
+        this.jobs = jobs;
+        this.keys = keys;
+    }
+
+    @GetMapping("/assets/{assetId}")
+    public RemoteAsset asset(@PathVariable String assetId,
+                             @RequestHeader("X-Internal-Principal") String token) {
+        var principal = verify(token, "GET /internal/media/assets/" + assetId);
+        var asset = assets.requireReady(new ChatIdentity(principal.tenant(), principal.subject(), true), assetId);
+        return new RemoteAsset(asset.id(), asset.objectKey(), asset.mimeType(), asset.fileSize(),
+                storage.signedGetUrl(asset.objectKey()));
+    }
+
+    @GetMapping("/image-jobs/{jobId}/publish-source")
+    public ImageJobService.PublishSource publishSource(@PathVariable String jobId,
+                                                        @RequestHeader("X-Internal-Principal") String token) {
+        var principal = verify(token, "GET /internal/media/image-jobs/" + jobId + "/publish-source");
+        if (jobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "媒体任务服务未配置");
+        return jobs.requirePublishableOutput(new ChatIdentity(principal.tenant(), principal.subject(), true), jobId);
+    }
+
+    @PostMapping("/image-jobs")
+    public ImageJobService.JobView createJob(@RequestBody CreateJobRequest request,
+                                             @RequestHeader("X-Internal-Principal") String token) {
+        var principal = verify(token, "POST /internal/media/image-jobs");
+        if (jobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "媒体任务服务未配置");
+        var attachment = new ChatAttachmentRequest();
+        attachment.setAssetId(request.assetId());
+        return jobs.create(new ChatIdentity(principal.tenant(), principal.subject(), true), request.conversationId(),
+                request.prompt(), java.util.List.of(attachment));
+    }
+
     @GetMapping("/assets/{assetId}/ownership")
     public boolean ownsAsset(@PathVariable String assetId,
                              @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
-        return assetId != null && !assetId.isBlank() && userId != null && !userId.isBlank();
+        // This legacy endpoint used to return true for any non-empty values,
+        // allowing callers to forge ownership. Until a signed service principal
+        // contract exists, fail closed instead of making a security decision.
+        throw new ResponseStatusException(HttpStatus.GONE, "旧内部所有权接口已停用");
     }
+
+    private SignedPrincipal.Scoped verify(String token, String operation) {
+        try {
+            return keys.verify(token, "agent-media-service", operation);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "内部身份签名无效");
+        }
+    }
+
+    public record RemoteAsset(String assetId, String objectKey, String mimeType,
+                              long fileSize, String downloadUrl) {}
+
+    public record CreateJobRequest(String conversationId, String prompt, String assetId) {}
 }

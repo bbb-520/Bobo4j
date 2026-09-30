@@ -1,5 +1,5 @@
-镜像构建——前者打单体 jar（非 root 用户、Temurin 21 JRE、MaxRAMPercentage=75），
-后者按 JAR_FILE 参数打各微服务。
+# 镜像构建使用非 root 用户、Temurin 21 JRE 和 MaxRAMPercentage=75。
+# 通过 JAR_FILE 参数选择要打包进镜像的微服务 JAR。
 
 FROM eclipse-temurin:21-jre
 ARG JAR_FILE

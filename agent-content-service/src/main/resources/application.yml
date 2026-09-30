@@ -1,14 +1,66 @@
 spring:
   application.name: agent-content-service
   config.import: optional:nacos:agent-content-service.yml?group=AGENT_GROUP&refreshEnabled=true
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:agent}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:agent}
+    password: ${MYSQL_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    table: flyway_schema_history_content
   cloud:
     compatibility-verifier.enabled: false
     nacos:
-      discovery.server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
-      config.server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: AGENT_GROUP
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: AGENT_GROUP
 server:
   port: ${SERVER_PORT:18083}
   shutdown: graceful
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true
+app:
+  security:
+    api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:}
+    internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
+    internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
+    anonymous-cookie-name: ${ANONYMOUS_COOKIE_NAME:bbb_agent_anonymous_id}
+    session-cookie-name: ${SESSION_COOKIE_NAME:bbb_agent_session}
+    default-tenant-id: ${DEFAULT_TENANT_ID:local}
+  auth:
+    base-url: ${AUTH_SERVICE_URL:http://127.0.0.1:18081}
+  media:
+    base-url: ${MEDIA_SERVICE_URL:http://127.0.0.1:18082}
+  oss:
+    enabled: ${OSS_ENABLED:false}
+    region: ${ALIYUN_OSS_REGION:cn-beijing}
+    bucket: ${ALIYUN_OSS_BUCKET:}
+    endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+    source-prefix: ${OSS_SOURCE_PREFIX:source}
+    output-prefix: ${OSS_OUTPUT_PREFIX:output}
+    thumbnail-prefix: ${OSS_THUMBNAIL_PREFIX:thumbnail}
+    archive-prefix: ${OSS_ARCHIVE_PREFIX:archive}
+    upload-policy-ttl: ${OSS_UPLOAD_POLICY_TTL:600s}
+    signed-url-ttl: ${OSS_SIGNED_URL_TTL:600s}
+    max-object-bytes: ${OSS_MAX_OBJECT_BYTES:20971520}
+  zine:
+    enabled: ${ZINE_ENABLED:true}
+    base-url: ${ZINE_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
+    endpoint: ${ZINE_IMAGE_ENDPOINT:/services/aigc/multimodal-generation/generation}
+    model: ${ZINE_IMAGE_MODEL:qwen-image-3.0-pro}
+    size: ${ZINE_IMAGE_SIZE:1024*1707}
+    prompt-extend: ${ZINE_PROMPT_EXTEND:true}
+    watermark: ${ZINE_WATERMARK:false}
+    timeout: ${ZINE_IMAGE_TIMEOUT:180s}
+    max-upload-bytes: ${ZINE_MAX_UPLOAD_BYTES:20971520}
