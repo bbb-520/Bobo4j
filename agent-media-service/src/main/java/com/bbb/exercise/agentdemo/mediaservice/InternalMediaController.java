@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping("/internal/media")
@@ -43,31 +45,37 @@ public class InternalMediaController {
     }
 
     @GetMapping("/assets/{assetId}")
-    public RemoteAsset asset(@PathVariable String assetId,
-                             @RequestHeader("X-Internal-Principal") String token) {
-        var principal = verify(token, "GET /internal/media/assets/" + assetId);
-        var asset = assets.requireReady(new ChatIdentity(principal.tenant(), principal.subject(), true), assetId);
-        return new RemoteAsset(asset.id(), asset.objectKey(), asset.mimeType(), asset.fileSize(),
-                storage.signedGetUrl(asset.objectKey()));
+    public Mono<RemoteAsset> asset(@PathVariable String assetId,
+                                   @RequestHeader("X-Internal-Principal") String token) {
+        return Mono.fromCallable(() -> {
+            var principal = verify(token, "GET /internal/media/assets/" + assetId);
+            var asset = assets.requireReady(new ChatIdentity(principal.tenant(), principal.subject(), true), assetId);
+            return new RemoteAsset(asset.id(), asset.objectKey(), asset.mimeType(), asset.fileSize(),
+                    storage.signedGetUrl(asset.objectKey()));
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @GetMapping("/image-jobs/{jobId}/publish-source")
-    public ImageJobService.PublishSource publishSource(@PathVariable String jobId,
-                                                        @RequestHeader("X-Internal-Principal") String token) {
-        var principal = verify(token, "GET /internal/media/image-jobs/" + jobId + "/publish-source");
-        if (jobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "媒体任务服务未配置");
-        return jobs.requirePublishableOutput(new ChatIdentity(principal.tenant(), principal.subject(), true), jobId);
+    public Mono<ImageJobService.PublishSource> publishSource(@PathVariable String jobId,
+                                                             @RequestHeader("X-Internal-Principal") String token) {
+        return Mono.fromCallable(() -> {
+            var principal = verify(token, "GET /internal/media/image-jobs/" + jobId + "/publish-source");
+            if (jobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "媒体任务服务未配置");
+            return jobs.requirePublishableOutput(new ChatIdentity(principal.tenant(), principal.subject(), true), jobId);
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @PostMapping("/image-jobs")
-    public ImageJobService.JobView createJob(@RequestBody CreateJobRequest request,
-                                             @RequestHeader("X-Internal-Principal") String token) {
-        var principal = verify(token, "POST /internal/media/image-jobs");
-        if (jobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "媒体任务服务未配置");
-        var attachment = new ChatAttachmentRequest();
-        attachment.setAssetId(request.assetId());
-        return jobs.create(new ChatIdentity(principal.tenant(), principal.subject(), true), request.conversationId(),
-                request.prompt(), java.util.List.of(attachment));
+    public Mono<ImageJobService.JobView> createJob(@RequestBody CreateJobRequest request,
+                                                   @RequestHeader("X-Internal-Principal") String token) {
+        return Mono.fromCallable(() -> {
+            var principal = verify(token, "POST /internal/media/image-jobs");
+            if (jobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "媒体任务服务未配置");
+            var attachment = new ChatAttachmentRequest();
+            attachment.setAssetId(request.assetId());
+            return jobs.create(new ChatIdentity(principal.tenant(), principal.subject(), true), request.conversationId(),
+                    request.prompt(), java.util.List.of(attachment));
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @GetMapping("/assets/{assetId}/ownership")

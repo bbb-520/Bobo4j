@@ -11,11 +11,39 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class InternalMediaBoundaryTest {
+    @Test
+    void isolatesBlockingAssetLookupFromReactiveEventLoop() {
+        byte[] key = new byte[32];
+        var assets = mock(ImageAssetService.class);
+        var storage = mock(OssStorageService.class);
+        var lookupThread = new AtomicReference<Thread>();
+        when(assets.requireReady(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("asset-1")))
+                .thenAnswer(invocation -> {
+                    lookupThread.set(Thread.currentThread());
+                    return new ImageAssetService.AssetRecord("asset-1", "source/object.png", "image/png", 12,
+                            "READY", LocalDateTime.now().plusMinutes(5));
+                });
+        when(storage.signedGetUrl("source/object.png")).thenReturn("https://oss.example/source/object.png");
+        var client = WebTestClient.bindToController(new InternalMediaController(assets, storage,
+                new PrincipalKeyRing("current=" + Base64.getEncoder().encodeToString(key), "current"))).build();
+        String token = SignedPrincipal.issueScoped("current", "agent-chat-service", "user-1", "tenant-1",
+                "agent-media-service", "GET /internal/media/assets/asset-1", Instant.now(), key);
+
+        client.get().uri("/internal/media/assets/asset-1")
+                .header("X-Internal-Principal", token)
+                .exchange().expectStatus().isOk();
+
+        assertFalse(lookupThread.get() instanceof reactor.core.scheduler.NonBlocking,
+                "blocking media lookup must not run on a Reactor non-blocking thread");
+    }
+
     @Test
     void returnsOwnedReadyAssetOnlyForSignedPrincipal() {
         byte[] key = new byte[32];
