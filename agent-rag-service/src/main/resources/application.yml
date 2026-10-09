@@ -1,0 +1,70 @@
+server:
+  port: ${RAG_SERVICE_PORT:18086}
+spring:
+  application:
+    name: agent-rag-service
+  config:
+    import: optional:nacos:agent-rag-service.yml?group=AGENT_GROUP&refreshEnabled=true
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        enabled: ${NACOS_DISCOVERY_ENABLED:true}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: AGENT_GROUP
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: AGENT_GROUP
+        import-check:
+          enabled: false
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:agent}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:agent}
+    password: ${MYSQL_PASSWORD:change-me}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:change-redis-me}
+  flyway:
+    enabled: true
+    table: flyway_schema_history_rag
+    locations: classpath:db/migration
+  webflux:
+    multipart:
+      max-in-memory-size: 64KB
+      max-disk-usage-per-part: 100MB
+      max-parts: 1
+rag:
+  storage-root: ${RAG_STORAGE_ROOT:./data/rag}
+  dimensions: 1024
+  maximum-characters: 20000000
+  rerank-minimum: ${RAG_RERANK_MINIMUM:0.25}
+  dense-rrf-weight: ${RAG_DENSE_RRF_WEIGHT:1.0}
+  milvus:
+    uri: ${MILVUS_URI:http://localhost:19530}
+    token: ${MILVUS_TOKEN:}
+    collection: agent_rag_v2
+app:
+  auth:
+    base-url: ${AUTH_SERVICE_URL:http://localhost:18081}
+  chat:
+    base-url: ${CHAT_SERVICE_URL:http://localhost:18085}
+  security:
+    session-cookie-name: ${SESSION_COOKIE_NAME:bbb_agent_session}
+    default-tenant-id: ${DEFAULT_TENANT_ID:local}
+    internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
+    internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:1.0}

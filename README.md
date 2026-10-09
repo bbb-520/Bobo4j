@@ -1,229 +1,281 @@
-# BoboWorld4J Agent Platform
+# BOBO4J
 
-BoboWorld4J 是一个基于 Java 21 的多模型 Agent 平台，面向对话、视觉理解、图片生成、内容创作与任务编排场景。项目采用 Maven 多模块架构，以领域服务承载可独立部署的业务能力，同时保留 `agent-chat-legacy` 作为迁移期兼容与回滚路径。
+**基于 Java 与 Spring AI 的 AI 应用平台：流式对话、文档 RAG、可恢复 Agent、图片创作与账户计费。**
 
-## 项目定位
+BOBO4J 将模型调用、知识检索、工具执行和消费结算拆分为明确的服务边界。用户可以上传文档获取摘要并连续追问，也可以让 Agent 完成多步骤任务，在中途停止、断线后重连，并查看执行进度与引用来源。
 
-- 统一入口：通过 `agent-gateway` 暴露稳定的 `/api/**` API，并使用 Nacos 做服务发现与配置管理。
-- 领域拆分：认证、聊天、媒体、内容和 Agent 编排分别由独立服务负责。
-- 持久化优先：MySQL 保存业务事实，Flyway 管理服务级 schema 演进，Redis 只承担聊天记忆和短期状态。
-- 异步可靠：图片生成采用数据库任务队列、租约抢占、幂等终态和 OSS 结果引用。
-- 兼容迁移：旧单体完整归属 `agent-chat-legacy`，新服务可独立构建、测试和打包。
+本仓库提供后端与基础设施配置；[AgentWebDemo](https://github.com/bbb-520/AgentWebDemo) 提供配套 React 前端。前后端整体统称 **BOBO4J**，源码目录和 Maven 模块名保留现有命名。
 
-## 顶层架构
+## 核心能力
 
-```text
-Client
-  │ HTTP / SSE
-  ▼
-agent-gateway:18000 ── Nacos discovery/config
-  ├── agent-auth-service:18081
-  ├── agent-chat-service:18085
-  ├── agent-media-service:18082
-  ├── agent-content-service:18083
-  └── agent-orchestrator-service:18084
-          │
-          ├── MySQL 8.4  （业务事实与任务状态）
-          ├── Redis Stack Server 7.4  （聊天记忆、RediSearch 与短期状态）
-          └── Aliyun OSS （源图、生成结果与签名 URL）
-```
-
-### Maven 模块分层
-
-```text
-BoboWorld4J/                         纯 Maven 聚合根：只编排 modules
-├── platform-parent/                 公共父 POM、Java/BOM/版本管理
-├── agent-common/                    公共响应、配置和架构契约
-├── agent-api/                       跨服务 API/DTO 契约
-├── agent-gateway/                   Gateway、路由、服务发现和入口过滤
-├── agent-auth-service/              注册、登录、会话、用户模型配置
-├── agent-chat-service/              对话、SSE、会话查询和聊天记忆
-├── agent-media-service/             图片资产、生成任务、OSS 和 Worker
-├── agent-content-service/           Bobo's World、照片和 Zine 内容
-├── agent-orchestrator-service/      AgentRun 状态机、编排和恢复
-└── agent-chat-legacy/               旧单体兼容壳与回滚应用
-```
-
-根模块 `BoboWorld4J` 不拥有任何 Java、测试或运行资源，根目录不存在 `src`。所有旧单体代码、配置、静态资源、SQL 和测试均位于 `agent-chat-legacy/src`，Legacy 使用标准 Maven 目录和自身显式依赖，不再通过 `../src` 编译。
-
-## 领域服务
-
-| 模块 | 默认端口 | 核心职责 | 主要持久化事实 |
-| --- | ---: | --- | --- |
-| `agent-gateway` | 18000 | 统一入口、路由、服务发现、请求过滤 | 无业务表 |
-| `agent-auth-service` | 18081 | 注册、登录、会话、API Key、模型配置 | `app_user`、`auth_session`、`user_api_key`、`user_model_profile` |
-| `agent-chat-service` | 18085 | 多模型对话、视觉消息、SSE、会话与消息 | `chat_conversation`、`chat_message`、`vision_memory` |
-| `agent-media-service` | 18082 | 图片上传、生成任务、Worker、OSS | `image_asset`、`image_job`、租约字段 |
-| `agent-content-service` | 18083 | Bobo's World、照片、Zine 内容 | 内容域表及共享兼容基线 |
-| `agent-orchestrator-service` | 18084 | AgentRun、任务编排、状态转移、恢复 | `agent_run` |
-| `agent-chat-legacy` | 18080 | 迁移期旧单体兼容与回滚 | 旧单体兼容表 |
+| 能力 | 实现内容 |
+| --- | --- |
+| 对话与识图 | WebFlux SSE 流式输出、会话记忆、图片附件、用户与租户身份隔离 |
+| 文档 RAG | Tika 多格式解析、语义切片、向量索引、Dense + BM25 混合召回、RRF 融合与重排序 |
+| 文档摘要与追问 | 异步入库与摘要、进度查询、固定文档版本的问答会话、可查看的原文引用 |
+| Agent 执行 | 模型输出决策，外循环调用白名单工具；动态轮次预算、工具超时、步骤幂等、执行审计 |
+| 停止与恢复 | 持久化任务和事件，显式停止、版本控制的继续执行、SSE 游标回放 |
+| 模型兜底 | 主模型超时或异常时最多尝试一次备用模型；失败时给出明确状态，保留已有内容与调用回执 |
+| 图片与内容 | OSS 上传策略、图片生成任务、Zine 创作与 Bobo World 作品发布 |
+| 账户与支付 | QQ 邮箱验证码、Cookie 登录、免费 Token、钱包与消费记录、支付宝及微信扫码充值 |
+| 可观测性 | Actuator、Micrometer、Prometheus 指标与告警，Zipkin 调用链 |
 
 ## 技术栈
 
-- 语言与构建：Java 21、Maven 3.9+、Spring Boot 4.1.1。
-- Web 与服务治理：Spring WebFlux、Spring Cloud Gateway、Spring Cloud LoadBalancer、Nacos 2025.1.0.0、Sentinel。
-- Agent 与模型：Spring AI 2.0.1、OpenAI-compatible Provider、DashScope 适配、Auth-owned 模型配置。
-- 数据访问：MyBatis-Plus 3.5.16、Spring JDBC、MySQL 8.4、Flyway。
-- 状态与对象存储：Redis Stack Server 7.4（含 RediSearch）、Aliyun OSS。
-- 测试：JUnit 5、AssertJ、Mockito、Spring Boot Test，覆盖单元、API 契约、持久化和 schema 边界。
-- 交付：Docker Compose、多服务镜像、Nacos 配置导入和 PowerShell 冒烟脚本。
+版本以 [Maven 父模块](platform-parent/pom.xml)、[RAG 模块](agent-rag-service/pom.xml)和 Compose 中的配置为准。
 
-## 持久化与一致性
+| 层次 | 技术 |
+| --- | --- |
+| 后端 | Java 21、Spring Boot 4.1.1、Spring AI 2.0.1、Spring WebFlux / Reactor |
+| 微服务 | Spring Cloud 2025.1.0、Spring Cloud Alibaba 2025.1.0.0、Gateway、Nacos 3.1.1、Sentinel |
+| 数据与迁移 | MySQL 8.4、Spring JDBC、MyBatis、Flyway、Redis Stack 7.4 |
+| 文档与检索 | Apache Tika 3.3.2、Milvus Server 2.6.2 / Java SDK 2.6.4、BM25、RRF |
+| 模型 | DashScope / Qwen 与 OpenAI 兼容接口；默认 Embedding 为 `text-embedding-v4`，向量维度 1024 |
+| 对象存储与支付 | 阿里云 OSS SDK、JavaMail、支付宝 SDK、微信 Native API v3 |
+| 前端 | React 18、TypeScript 5.6、Vite 5、Node.js 22、Three.js / React Three Fiber |
+| 部署与监控 | Docker / Compose、Prometheus 3.4.2、Zipkin 3.5.1 |
+| 验证 | JUnit 5、Spring Boot Test、Testcontainers、H2、前端 Node 测试、架构契约检查 |
 
-每个可持久化服务在自身的 `src/main/resources/db/migration` 中维护 Flyway 版本化迁移。服务启动时执行迁移，Docker MySQL 不再挂载重复初始化脚本。
+## 项目架构
 
-- Auth：`V1__auth_baseline`。
-- Chat：`V1__chat_baseline`。
-- Media：`V1__media_baseline`、`V2__media_lease_idempotency`。
-- Content：`V1__content_baseline`、`V2__publish_prompt_snapshot`。
-- Orchestrator：`V1__orchestrator_baseline`。
-- Legacy：仅保留 `db/migration/V2__image_job_provider_model.sql` 兼容脚本；Legacy 默认只读，不参与新服务 schema 初始化。
-
-关键状态规则：
-
-- 图片任务状态为 `QUEUED → PROCESSING → SUCCEEDED/FAILED`。
-- Worker 使用 `lease_owner` 与 `lease_until` 条件更新抢占任务，终态更新必须带状态条件。
-- 会话和消息先落 MySQL，再通过 SSE 返回；Redis 不替代业务事实表。
-- 迁移期共享逻辑库只使用业务标识关联，不新增跨服务外键；长期目标是通过 HTTP/SSE 服务 API 解耦。
-- 生产迁移前必须备份 MySQL、Nacos 和 OSS 关键元数据；应用回滚不能直接删除 Flyway 记录。
-
-## 主要 API
-
-| 方法 | 路径 | 领域 |
-| --- | --- | --- |
-| `POST` | `/api/auth/register`、`/api/auth/login` | 认证 |
-| `GET` | `/api/auth/me` | 当前用户 |
-| `GET/POST/DELETE` | `/api/settings/**` | 用户模型与视觉记忆配置 |
-| `POST` | `/api/chat` | 对话、视觉理解、继续指令、SSE |
-| `GET` | `/api/settings/visual-memory/context` | 视觉记忆检索 |
-| `POST` | `/api/image-assets/upload-policy` | 图片上传策略 |
-| `POST` | `/api/image-assets/{assetId}/complete` | 图片上传完成确认 |
-| `GET/POST` | `/api/image-jobs/**` | 图片生成任务 |
-| `GET/POST` | `/api/bobo/**` | Bobo's World 内容域 |
-| `POST` | `/api/zine/generate` | Zine 图片生成 |
-| `GET` | `/actuator/health` | 服务健康检查 |
-
-字段、鉴权和错误码以对应 Controller、DTO 与 API 契约为准。真实模型 Key、OSS 密钥、数据库密码和 Nacos Token 只能通过环境变量或 Secret 注入。
-
-## 本地开发
-
-### 前置条件
-
-- JDK 21。
-- Maven 3.9+。
-- Docker Desktop / Docker Compose（仅完整容器联调需要）。
-- 可选：模型 Provider 和 Aliyun OSS 凭证。
-
-Windows 如 Maven 未加入 PATH，可使用：
-
-```powershell
-.\scripts\ensure-maven.ps1
+```mermaid
+flowchart TB
+    Browser[浏览器 / BOBO4J 前端] --> Web[React 页面 + Node API 代理]
+    Web --> Gateway[Gateway：路由、认证与身份签名]
+    Gateway --> Auth[Auth：账户、模型配置、计费、支付]
+    Gateway --> Chat[Chat：流式对话与模型调用]
+    Gateway --> Rag[RAG：文档、检索与问答]
+    Gateway --> Agent[Orchestrator：持久执行与事件]
+    Gateway --> Media[Media：图片资产与任务]
+    Gateway --> Content[Content：创作与作品]
+    Agent --> Chat
+    Agent --> Rag
+    Agent --> Media
+    Rag --> Chat
+    Chat --> Auth
+    Rag --> Auth
+    Media --> Auth
+    Content --> Media
+    Rag --> Milvus[(Milvus)]
+    Chat --> Redis[(Redis Stack)]
+    Auth --> MySQL[(MySQL / Flyway)]
+    Agent --> MySQL
+    Rag --> MySQL
+    Media --> OSS[(阿里云 OSS)]
+    Content --> OSS
 ```
 
-如果使用仓库提供的本地 Maven 缓存配置：
+Nacos 为运行服务提供注册发现与配置管理；Prometheus 抓取服务指标，Zipkin 收集调用链。业务入口统一经过 Gateway，`/internal/**` 仅用于带签名身份的服务间调用。
 
-```powershell
-& 'D:\java\apache-maven-3.9.9-bin\apache-maven-3.9.9\bin\mvn.cmd' `
-  --% -s D:\path\to\repo\.m2repo\settings.xml test
-```
+### 服务与模块
 
-### 构建与测试
-
-```powershell
-# 全量测试
-mvn test
-
-# 全量打包
-mvn -DskipTests package
-
-# 只验证 Legacy 及其父模块
-mvn -pl agent-chat-legacy -am test
-
-# 验证根模块边界契约
-mvn -pl agent-common -Dtest=RootAggregatorContractTest test
-```
-
-### Docker Compose
-
-```powershell
-Copy-Item .env.example .env
-docker compose -f infra/docker-compose.yml up -d
-# Nacos 3.1 首次启动需要初始化本地开发管理员（仅首次执行）
-Invoke-RestMethod -Method Post `
-  -Uri 'http://localhost:8848/nacos/v3/auth/user/admin' `
-  -Body @{ username = 'nacos'; password = 'nacos' }
-.\scripts\import-nacos.ps1
-mvn -DskipTests package
-docker compose -f infra/docker-compose.yml -f docker-compose.app.yml up -d --build
-.\scripts\smoke-test.ps1
-```
-
-基础设施默认地址：Nacos `8848`、Sentinel Dashboard `8080`、MySQL `3306`、Redis Stack Server `6379`；应用统一入口为 Gateway `18000`。
-
-`agent-chat-service` 使用 Spring AI Redis Chat Memory，需要 Redis Stack Server 提供 RediSearch 命令；不要将其替换为普通 `redis:7.4-alpine`。`.env.example` 只包含本地开发占位值，部署前必须替换密码、Token、模型 Key 和 OSS 凭证。Windows 当前 Docker Desktop 安装在 `D:\docker\DockerDesktop` 时，若当前终端尚未刷新 PATH，可直接使用 `D:\docker\DockerDesktop\resources\cli-plugins\docker-compose.exe`。
-
-### Docker 与 IDEA 本地运行模式
-
-Docker 完整模式和 IDEA 本地模式不要同时启动 6 个业务服务，否则会争抢 `18000`、`18081`—`18085` 端口。
-
-完整 Docker 模式：
-
-```powershell
-docker compose -f infra/docker-compose.yml -f docker-compose.app.yml up -d --build
-.\scripts\smoke-test.ps1
-```
-
-IDEA 本地模式：保留 MySQL、Nacos、Redis Stack、Sentinel 基础设施运行，先停止 Docker 业务容器，再启动 IDEA 中的各服务：
-
-```powershell
-docker compose -f infra/docker-compose.yml -f docker-compose.app.yml stop agent-gateway agent-auth-service agent-chat-service agent-media-service agent-content-service agent-orchestrator-service
-```
-
-本地服务默认使用 Nacos `127.0.0.1:8848`、账号 `nacos/nacos`，Chat Redis 密码默认使用 `change-redis-me`；Docker Compose 会通过环境变量覆盖为容器内地址 `nacos:8848` 和 `redis`。
-
-## 部署与回滚
-
-推荐拓扑为 Linux + Docker Engine 24+ / Compose v2+，外置或托管 MySQL、Redis、OSS 和 Nacos 集群，公网只暴露 Gateway 或其前置负载均衡。
-
-部署顺序：
-
-1. 准备并替换 `.env` 中全部默认密码、Token 和密钥。
-2. 启动 MySQL、Redis、Nacos、Sentinel 等基础设施。
-3. 构建镜像并执行 `docker compose ... config --quiet`。
-4. 先更新领域服务，再更新 Gateway，执行健康检查、登录、SSE、图片任务和 AgentRun 冒烟。
-5. 失败时恢复上一版本镜像；若新版本 schema 不兼容，按备份恢复数据库并暂停 Worker。
-
-迁移期也可以启动 `agent-chat-legacy` 作为兼容回滚应用。Legacy 不作为新 Compose 的主业务容器，但保留其独立可执行 jar 和原有 API、配置、数据库兼容性。
-
-## 验收状态
-
-截至 2026-09-30：
-
-- Maven reactor：11 个模块（根聚合、父 POM、Legacy、Common、API、Gateway、Auth、Chat、Media、Content、Orchestrator）。
-- 全量测试：以当前 Maven reactor 实际发现结果为准；基础设施 Testcontainers 测试只有在 `RUN_INFRASTRUCTURE_TESTS=true` 时启用。
-- 根聚合契约：根 `src` 不存在、Legacy 标准源码/资源目录存在、Legacy POM 不含 `../src`。
-- Legacy 回归：22/22 测试通过，标准目录编译和资源复制通过。
-- 全量打包：以 `mvn -DskipTests package` 为准复核可执行 jar 产物。
-- Docker Compose 配置：通过 `config --quiet`。
-- Docker 镜像：6 个应用镜像使用最新 JAR 重建成功；MySQL、Nacos、Redis Stack Server、Sentinel Dashboard 基础设施保持健康。
-- Nacos 配置：6 个服务配置导入成功，Nacos 3.1 本地管理员初始化成功。
-- Docker 全量冒烟：`scripts/smoke-test.ps1` 通过，Nacos 与 Gateway、Auth、Chat、Media、Content、Orchestrator 健康端点全部返回 200。
-- 本地运行验收：Content 服务使用最新 JAR 启动成功，Nacos 配置加载成功，`/actuator/health` 返回 HTTP 200；验收后已停止 Docker 业务容器以释放 IDEA 端口。
-
-架构规格和实施计划位于 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`；不再引用已移除的 `docs/verification/`。
-
-## 目录速览
+| 服务 | 默认端口 | 职责 |
+| --- | ---: | --- |
+| `agent-gateway` | 18000 | API 路由、登录态校验、可信身份签名、CORS |
+| `agent-auth-service` | 18081 | 用户、邮箱验证码、平台模型、钱包、支付与对账 |
+| `agent-media-service` | 18082 | 图片上传资产、OSS、生成任务与供应商回执 |
+| `agent-content-service` | 18083 | Zine 创作与 Bobo World 发布 |
+| `agent-orchestrator-service` | 18084 | 执行状态、动态预算、步骤、停止、继续和事件回放 |
+| `agent-chat-service` | 18085 | 流式聊天、识图、模型兜底与会话记忆 |
+| `agent-rag-service` | 18086 | 文档解析、摘要、混合检索、问答和来源验证 |
 
 ```text
-agent-gateway/                 API 网关
-agent-auth-service/            认证与用户模型配置
-agent-chat-service/            对话、会话、SSE、记忆
-agent-media-service/           图片资产、任务和 Worker
-agent-content-service/         Bobo's World、照片、Zine
-agent-orchestrator-service/    AgentRun 状态机
-agent-chat-legacy/             旧单体回滚壳，唯一拥有旧单体代码
-agent-common/ agent-api/       公共基础设施和 API 契约
-platform-parent/               公共父 POM 与版本管理
-infra/                         Nacos、MySQL、Redis、Sentinel
-scripts/                       构建、配置导入、镜像和冒烟脚本
+浏览器 → agent-web:5173 → agent-gateway:18000
+                            ├─ agent-auth-service:18081
+                            ├─ agent-media-service:18082
+                            ├─ agent-content-service:18083
+                            ├─ agent-orchestrator-service:18084
+                            ├─ agent-chat-service:18085
+                            └─ agent-rag-service:18086
 ```
+
+```text
+BOBO4J/
+├─ platform-parent/              # 依赖与版本管理
+├─ agent-api/                    # 跨服务 DTO 和接口契约
+├─ agent-common/                 # 签名身份、通用安全及观测能力
+├─ agent-runtime/                # 运行时公共能力、身份和对象存储
+├─ agent-gateway/
+├─ agent-auth-service/
+├─ agent-chat-service/
+├─ agent-rag-service/
+│  └─ evaluation/                # 评测语料、采集及校准脚本
+├─ agent-orchestrator-service/
+├─ agent-media-service/
+├─ agent-content-service/
+├─ agent-architecture-tests/     # 端口、路由、模块和迁移契约
+├─ infra/                       # Nacos、MySQL、Redis、Milvus、监控
+├─ scripts/                     # 构建、配置导入及检查脚本
+├─ docker-compose.app.yml
+├─ Dockerfile.service
+└─ .env.example                 # 无真实凭据的配置模板
+```
+
+### RAG 工作链路
+
+1. 用户以幂等请求 ID 上传文档，原件落到文档存储卷，入库任务异步执行。
+2. Tika 提取文本，按内容边界切片，保留文档版本、标题、段落与原文范围；执行语义切分和 Embedding。
+3. 向量写入 Milvus，文档与切片元数据保存在 MySQL；摘要分段生成并汇总，提供状态与覆盖率。
+4. 问答会话固定选中文档及索引版本。多轮追问根据已提交的历史改写检索问题。
+5. Milvus Dense 召回与应用层 BM25 召回通过 RRF 融合，再使用 Rerank 筛选证据。
+6. 模型基于证据作答；`RelevancyEvaluator`、事实支持和引用检查共同约束结果，无充分证据时明确说明。
+
+默认重排序模型为 `qwen3-rerank`，评估及备用模型为 `qwen-plus`。模型由运营者配置，名称不代表已配置凭据或供应商一定可用。更换 Embedding 模型时需要维护一致的维度并重新建立索引。
+
+当前支持带文本层的 PDF、Office、HTML、Markdown 和纯文本，单文件上限 100 MiB；不包含扫描件 OCR。离线评测包含 12 个文档族、48 个问题，用于区分召回缺失、排序不佳与回答不忠实；语料验证通过不等于真实模型质量达标。
+
+### Agent、流式恢复与兜底
+
+执行预算初始为 4 轮，有有效进展时按 4 轮扩展；仍受 64 轮、128 次工具调用、64,000 Token 和 30 分钟活动时间的硬上限约束。无进展或预算不足时进入等待状态，由用户补充信息或继续执行。恢复不会清零累计消耗。
+
+任务、工具步骤和事件写入 MySQL。步骤使用稳定调用 ID 和回执恢复，避免刷新、重连或重启造成重复派发。停止 SSE 订阅只断开连接；停止持久任务必须调用 `/stop`。执行事件 ID 为 `executionId:seq`，通过 `Last-Event-ID` 或 `after` 回放遗漏事件。
+
+主模型默认首段超时 15 秒、空闲超时 20 秒、总超时 60 秒；备用调用默认 30 秒。兜底保留任务约束和文档证据，不能把失败状态包装成成功。已派发但消费未知的调用进入待对账状态，不承诺供应商撤销或免费重复调用。
+
+## API 调用
+
+API 基址为 Gateway 的 `/api`，前端 Node 服务也代理同路径。普通接口返回 JSON，对话和执行事件返回 `text/event-stream`。接口定义见各模块控制器及 [agent-api](agent-api/src/main/java/com/bbb/exercise/agentdemo/api)。
+
+### 主要接口
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| POST | `/api/auth/email/code` | 发送 QQ 邮箱验证码，`purpose` 为 REGISTER / LOGIN / BIND |
+| POST | `/api/auth/register` | 注册，提交用户名、密码、QQ 邮箱和验证码 |
+| POST | `/api/auth/login`、`/api/auth/email/login` | 密码登录或邮箱验证码登录 |
+| GET / POST | `/api/auth/me` / `/api/auth/logout` | 当前账户 / 登出 |
+| GET | `/api/settings/models` | 可用的平台模型配置 |
+| POST | `/api/chat` | 对话 SSE，字段为 `question`、`sessionId`、`attachments` |
+| POST / GET | `/api/documents` | 上传文档 / 文档列表 |
+| GET | `/api/documents/{id}`、`/api/documents/{id}/summary` | 入库状态 / 摘要 |
+| POST | `/api/documents/{id}/retry` | 重试失败的文档任务 |
+| POST | `/api/document-conversations` | 以 `documentIds` 创建文档问答会话 |
+| GET | `/api/document-conversations/{id}` | 固定索引版本与已提交问答历史 |
+| GET | `/api/documents/{id}/sources/{chunkId}` | 查看拥有权限的原文切片 |
+| POST | `/api/agent-executions` | 创建 CHAT / AGENT / DOCUMENT_QA 持久任务 |
+| GET | `/api/agent-executions/{id}` | 查询任务状态、答案、预算与版本 |
+| GET | `/api/agent-executions/{id}/events` | 带事件 ID 的 SSE 订阅与回放 |
+| POST | `/api/agent-executions/{id}/stop`、`/api/agent-executions/{id}/resume` | 停止 / 继续任务 |
+| POST | `/api/image-assets/upload-policy` | 获取受限的 OSS 图片上传策略 |
+| POST | `/api/image-jobs`、`/api/zine/generate` | 图片生成任务 / Zine 创作 |
+| GET / POST | `/api/bobo/world` / `/api/bobo/items` | 作品浏览 / 发布 |
+| GET | `/api/billing/wallet`、`/api/billing/usage` | 钱包 / 消费明细 |
+| POST / GET | `/api/payments/orders` / `/api/payments/orders/{id}` | 创建扫码充值订单 / 查询状态 |
+
+登录成功写入 HttpOnly Cookie；浏览器请求使用 `credentials: 'include'`。用户和租户身份由服务端解析，客户端不能通过自填身份头指定其他用户。
+
+### 登录与流式对话
+
+以下 curl 示例使用已注册账户，`bobo4j.cookies` 仅保存在本地。首次注册须先获取 REGISTER 用途的邮箱验证码。
+
+```bash
+curl -c bobo4j.cookies -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"YOUR_PASSWORD"}' \
+  http://localhost:18000/api/auth/login
+
+curl -N -b bobo4j.cookies -H 'Content-Type: application/json' \
+  -d '{"question":"请介绍你能完成的任务","sessionId":"demo-chat"}' \
+  http://localhost:18000/api/chat
+```
+
+### 文档上传与二次提问
+
+```bash
+curl -b bobo4j.cookies -H 'X-Request-ID: upload-demo-001' \
+  -F 'file=@guide.pdf' http://localhost:18000/api/documents
+
+# 将 DOCUMENT_ID 替换为上传返回的 documentId；等待入库状态就绪。
+curl -b bobo4j.cookies http://localhost:18000/api/documents/DOCUMENT_ID
+curl -b bobo4j.cookies http://localhost:18000/api/documents/DOCUMENT_ID/summary
+
+curl -b bobo4j.cookies -H 'Content-Type: application/json' \
+  -d '{"documentIds":["DOCUMENT_ID"]}' \
+  http://localhost:18000/api/document-conversations
+
+# DOCUMENT_CONVERSATION_ID 来自上一步；再次提问保持同一文档会话，换新的 requestId。
+curl -b bobo4j.cookies -H 'Content-Type: application/json' \
+  -d '{"requestId":"qa-demo-001","type":"DOCUMENT_QA","question":"文档主要结论是什么？","documentConversationId":"DOCUMENT_CONVERSATION_ID"}' \
+  http://localhost:18000/api/agent-executions
+```
+
+文档上传返回 202，表示接收任务，不表示已经完成索引或摘要。回答通过执行接口的状态和事件获取；公开接口不直接暴露 `/internal/rag/answer`。
+
+### 事件回放、停止与继续
+
+```bash
+curl -N -b bobo4j.cookies \
+  http://localhost:18000/api/agent-executions/EXECUTION_ID/events
+
+# LAST_SEQ 使用已确认收到的事件序号；Last-Event-ID 的格式为 EXECUTION_ID:LAST_SEQ。
+curl -N -b bobo4j.cookies -H 'Last-Event-ID: EXECUTION_ID:LAST_SEQ' \
+  http://localhost:18000/api/agent-executions/EXECUTION_ID/events
+
+curl -X POST -b bobo4j.cookies \
+  http://localhost:18000/api/agent-executions/EXECUTION_ID/stop
+
+# 将示例版本 7 替换为最新任务查询中的 version；按实际等待/停止状态决定是否可继续。
+curl -b bobo4j.cookies -H 'Content-Type: application/json' \
+  -d '{"requestId":"resume-demo-001","expectedVersion":7,"additionalRounds":4,"instruction":"继续完成分析"}' \
+  http://localhost:18000/api/agent-executions/EXECUTION_ID/resume
+```
+
+执行创建的 `requestId` 是幂等键；相同键与相同参数返回同一任务，键相同而参数不一致返回冲突。恢复的 `expectedVersion` 用于防止并发覆盖。
+
+### 充值订单与错误语义
+
+```bash
+curl -b bobo4j.cookies -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: recharge-demo-001' \
+  -d '{"channel":"ALIPAY","amountCents":100}' \
+  http://localhost:18000/api/payments/orders
+```
+
+支付渠道为 `ALIPAY` 或 `WECHAT`，金额使用整数分；渠道须由运营者配置启用。订单提供二维码内容，钱包只在服务端验证支付通知后入账，不能以页面跳转或客户端状态判断支付成功。
+
+| 状态 | 常见含义 |
+| --- | --- |
+| 401 / 403 | 未登录或无权访问资源 |
+| 402 | 欠费或可用消费额度不足 |
+| 409 | 幂等参数冲突、版本冲突、并发调用或消费待对账 |
+| 413 | 上传超过大小限制 |
+| 502 / 503 | 上游服务失败或能力尚未配置 |
+
+SSE 已开始后，还需检查流内错误事件与最终任务状态，不能只看 HTTP 200。
+
+## 计费与数据一致性
+
+新注册账户一次性获得 1,000,000 免费 Token；按真实输入、输出 Token 消耗结算，优先扣免费额度，历史账户不自动补发。剩余不超过 100,000 Token 时提醒；欠费状态阻止继续调用。没有 Token 用量的图片按图片规则结算。
+
+内部金额使用整数微元，1 元 = 1,000,000 微元。预授权、派发、供应商回执、结算与退款通过事务和幂等约束关联；未知消费保留占用并等待对账。站内消费退款不等于支付渠道原路退款。
+
+MySQL 各服务使用独立 Flyway history；Redis 保存对话记忆，Milvus 保存文档向量，文档原件和基础设施数据使用独立持久卷。
+
+## 开发与验证
+
+后端需要 JDK 21 和 Maven；前端需要 Node.js 22。完整启动和 OSS、SMTP、支付配置步骤保存在本地 `HELP.md`，该运维文档不随 GitHub 仓库提交。公开配置模板见 [.env.example](.env.example)。
+
+```bash
+# 后端完整构建与验证
+mvn -Dmaven.compiler.fork=true verify
+
+# 架构契约：README 端口、模块默认端口、路由与配置一致性
+mvn -pl agent-architecture-tests -am -Dmaven.compiler.fork=true test
+
+# 前端仓库
+npm ci
+npm run typecheck
+npm run build
+npm run test:accounts-billing
+npm run test:executions
+npm run test:documents
+npm run test:proxy-cancellation
+```
+
+容器基础设施测试需要 Docker，且按测试的环境开关启用。文档评测入口为 [agent-rag-service/evaluation](agent-rag-service/evaluation)，真实采集会调用模型；结论须区分语料检查、自动评估和人工标注。
+
+## 项目边界
+
+- 默认部署是单机多容器方案，不能据此声称已具备高可用、集群灾备或无限任务执行能力。
+- 模型、OSS、邮箱和支付需要各自凭据，启动就绪不等于外部能力已验证。
+- 文档证据检查与模型兜底减少失败和不忠实回答，无法保证每次生成绝对正确。
+- README 描述当前源码实现；生产环境应使用一致版本的前后端，并在改动后重新打包和构建镜像。

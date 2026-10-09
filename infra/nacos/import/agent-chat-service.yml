@@ -14,4 +14,4 @@ spring:
         password: ${NACOS_PASSWORD:nacos}
         group: AGENT_GROUP
 server:
-  port: 18080
+  port: ${SERVER_PORT:18085}

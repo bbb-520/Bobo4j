@@ -10,8 +10,10 @@ class OrchestratorApplicationConfigurationTest {
     @Test
     void scansMigratedBusinessPackageForComponentsAndProperties() {
         assertThat(OrchestratorApplication.class.getAnnotation(SpringBootApplication.class).scanBasePackages())
-                .contains("com.bbb.exercise.agentdemo1_0");
+                .contains("com.bbb.exercise.agentdemo.orchestrator")
+                .doesNotContain("com.bbb.exercise.agentdemo1_0");
         assertThat(OrchestratorApplication.class.getAnnotation(ConfigurationPropertiesScan.class).basePackages())
-                .contains("com.bbb.exercise.agentdemo1_0");
+                .contains("com.bbb.exercise.agentdemo.orchestrator")
+                .doesNotContain("com.bbb.exercise.agentdemo1_0");
     }
 }

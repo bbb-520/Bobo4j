@@ -15,3 +15,19 @@ spring:
         group: AGENT_GROUP
 server:
   port: 18081
+
+app:
+  platform:
+    api-key: ${PLATFORM_API_KEY:}
+    chat-model: ${PLATFORM_CHAT_MODEL:qwen-turbo}
+    vision-model: ${PLATFORM_VISION_MODEL:qwen-vl-plus}
+    image-model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
+  billing:
+    admin-user-ids: ${BILLING_ADMIN_USER_IDS:}
+    token-price-per-1k-micros: ${BILLING_TOKEN_PRICE_PER_1K_MICROS:10000}
+    text-reserve-micros: ${BILLING_TEXT_RESERVE_MICROS:200000}
+    image-price-micros: ${BILLING_IMAGE_PRICE_MICROS:1000000}
+    low-balance-micros: ${BILLING_LOW_BALANCE_MICROS:500000}
+  email:
+    from: ${SMTP_FROM:}
+    otp-secret: ${AUTH_OTP_SECRET:}

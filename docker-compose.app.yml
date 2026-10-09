@@ -1,13 +1,43 @@
+x-app-defaults: &app-defaults
+  restart: unless-stopped
+  mem_limit: 768m
+
+x-observability: &observability
+  SPRING_CLOUD_NACOS_DISCOVERY_GROUP: AGENT_GROUP
+  SPRING_CLOUD_NACOS_CONFIG_GROUP: AGENT_GROUP
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: 'true'
+  MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${TRACE_SAMPLING_PROBABILITY:-0.1}
+  SPRING_REACTOR_CONTEXT_PROPAGATION: auto
+  # Shared schema, independent owner histories: version 0 keeps V1 in each new history.
+  SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+  SPRING_FLYWAY_BASELINE_VERSION: "0"
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PORT: 6379
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
+
 services:
   agent-chat-service:
+    <<: *app-defaults
+    mem_limit: 1024m
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-chat-service/target/agent-chat-service-0.0.1-SNAPSHOT.jar
     environment:
-      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
+      <<: *observability
+      MODEL_FIRST_OUTPUT_TIMEOUT_SECONDS: ${MODEL_FIRST_OUTPUT_TIMEOUT_SECONDS:-15}
+      MODEL_IDLE_TIMEOUT_SECONDS: ${MODEL_IDLE_TIMEOUT_SECONDS:-20}
+      MODEL_TOTAL_TIMEOUT_SECONDS: ${MODEL_TOTAL_TIMEOUT_SECONDS:-60}
+      MODEL_FALLBACK_TIMEOUT_SECONDS: ${MODEL_FALLBACK_TIMEOUT_SECONDS:-30}
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
+      AUTH_SERVICE_URL: http://agent-auth-service:18081
+      MEDIA_SERVICE_URL: http://agent-media-service:18082
       SERVER_PORT: 18085
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
@@ -29,20 +59,28 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
       SPRING_AI_CHAT_MEMORY_REPOSITORY_REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
     ports:
-      - "18085:18085"
+      - "127.0.0.1:18085:18085"
     depends_on:
       nacos: { condition: service_healthy }
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   agent-gateway:
+    <<: *app-defaults
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-gateway/target/agent-gateway-0.0.1-SNAPSHOT.jar
     environment:
+      <<: *observability
       SERVER_PORT: 18000
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
+      AUTH_SERVICE_URL: http://agent-auth-service:18081
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-bbb_agent_session}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-local}
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
@@ -52,7 +90,7 @@ services:
       SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:-nacos}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
     ports:
-      - "18000:18000"
+      - "0.0.0.0:18000:18000"
     depends_on:
       nacos: { condition: service_healthy }
       agent-auth-service: { condition: service_started }
@@ -60,17 +98,68 @@ services:
       agent-media-service: { condition: service_started }
       agent-content-service: { condition: service_started }
       agent-orchestrator-service: { condition: service_started }
+      agent-rag-service: { condition: service_started }
 
   agent-auth-service:
+    <<: *app-defaults
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar
     environment:
-      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
+      <<: *observability
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      FORCE_COOKIE_SECURE: ${FORCE_COOKIE_SECURE:-false}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
+      PLATFORM_CHAT_MODEL: ${PLATFORM_CHAT_MODEL:-qwen-turbo}
+      PLATFORM_VISION_MODEL: ${PLATFORM_VISION_MODEL:-qwen-vl-plus}
+      PLATFORM_IMAGE_MODEL: ${PLATFORM_IMAGE_MODEL:-qwen-image-3.0-pro}
+      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      PLATFORM_EMBEDDING_MODEL: ${PLATFORM_EMBEDDING_MODEL:-text-embedding-v4}
+      PLATFORM_RERANK_MODEL: ${PLATFORM_RERANK_MODEL:-qwen3-rerank}
+      PLATFORM_RERANK_BASE_URL: ${PLATFORM_RERANK_BASE_URL:-}
+      PLATFORM_EVALUATION_MODEL: ${PLATFORM_EVALUATION_MODEL:-qwen-plus}
+      PLATFORM_FALLBACK_MODEL: ${PLATFORM_FALLBACK_MODEL:-qwen-plus}
+      PLATFORM_FALLBACK_PROVIDER: ${PLATFORM_FALLBACK_PROVIDER:-QWEN}
+      PLATFORM_FALLBACK_BASE_URL: ${PLATFORM_FALLBACK_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      PLATFORM_FALLBACK_API_KEY: ${PLATFORM_FALLBACK_API_KEY:-}
+      BILLING_PLATFORM_FAULT_ENABLED: ${BILLING_PLATFORM_FAULT_ENABLED:-false}
+      BILLING_PLATFORM_FAULT_GROUP_CAP_MICROS: ${BILLING_PLATFORM_FAULT_GROUP_CAP_MICROS:-400000}
+      BILLING_PLATFORM_FAULT_WINDOW_CAP_MICROS: ${BILLING_PLATFORM_FAULT_WINDOW_CAP_MICROS:-2000000}
+      BILLING_PLATFORM_FAULT_UNRESOLVED_CAP: ${BILLING_PLATFORM_FAULT_UNRESOLVED_CAP:-10}
+      AUTH_OTP_SECRET: ${AUTH_OTP_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SSL: ${SMTP_SSL:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      BILLING_TOKEN_PRICE_PER_1K_MICROS: ${BILLING_TOKEN_PRICE_PER_1K_MICROS:-10000}
+      BILLING_TEXT_RESERVE_MICROS: ${BILLING_TEXT_RESERVE_MICROS:-200000}
+      BILLING_IMAGE_PRICE_MICROS: ${BILLING_IMAGE_PRICE_MICROS:-1000000}
+      BILLING_LOW_BALANCE_MICROS: ${BILLING_LOW_BALANCE_MICROS:-500000}
+      BILLING_ADMIN_USER_IDS: ${BILLING_ADMIN_USER_IDS:-}
+      PAYMENT_NOTIFY_BASE_URL: ${PAYMENT_NOTIFY_BASE_URL:-}
+      ALIPAY_ENABLED: ${ALIPAY_ENABLED:-false}
+      ALIPAY_GATEWAY: ${ALIPAY_GATEWAY:-https://openapi.alipay.com/gateway.do}
+      ALIPAY_APP_ID: ${ALIPAY_APP_ID:-}
+      ALIPAY_SELLER_ID: ${ALIPAY_SELLER_ID:-}
+      ALIPAY_PRIVATE_KEY_PATH: ${ALIPAY_PRIVATE_KEY_PATH:-/run/payment-keys/alipay-private.pem}
+      ALIPAY_PUBLIC_KEY_PATH: ${ALIPAY_PUBLIC_KEY_PATH:-/run/payment-keys/alipay-public.pem}
+      WECHAT_PAY_ENABLED: ${WECHAT_PAY_ENABLED:-false}
+      WECHAT_APP_ID: ${WECHAT_APP_ID:-}
+      WECHAT_MERCHANT_ID: ${WECHAT_MERCHANT_ID:-}
+      WECHAT_MERCHANT_SERIAL: ${WECHAT_MERCHANT_SERIAL:-}
+      WECHAT_PRIVATE_KEY_PATH: ${WECHAT_PRIVATE_KEY_PATH:-/run/payment-keys/wechat-private.pem}
+      WECHAT_API_V3_KEY: ${WECHAT_API_V3_KEY:-}
+      WECHAT_PUBLIC_KEY_ID: ${WECHAT_PUBLIC_KEY_ID:-}
+      WECHAT_PUBLIC_KEY_PATH: ${WECHAT_PUBLIC_KEY_PATH:-/run/payment-keys/wechat-public.pem}
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
       INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
       SERVER_PORT: 18081
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
@@ -82,21 +171,36 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
       MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    volumes:
+      - ${PAYMENT_KEYS_DIR:-./secrets/payments}:/run/payment-keys:ro
     ports:
-      - "18081:18081"
+      - "127.0.0.1:18081:18081"
     depends_on:
       nacos: { condition: service_healthy }
       mysql: { condition: service_healthy }
 
   agent-media-service:
+    <<: *app-defaults
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-media-service/target/agent-media-service-0.0.1-SNAPSHOT.jar
     environment:
-      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
+      <<: *observability
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
+      AUTH_SERVICE_URL: http://agent-auth-service:18081
+      PLATFORM_IMAGE_MODEL: ${PLATFORM_IMAGE_MODEL:-qwen-image-3.0-pro}
+      OSS_ENABLED: ${OSS_ENABLED:-false}
+      ALIYUN_OSS_REGION: ${ALIYUN_OSS_REGION:-cn-beijing}
+      ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET:-}
+      ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT:-oss-cn-beijing.aliyuncs.com}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
       SERVER_PORT: 18082
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
@@ -110,20 +214,34 @@ services:
       MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
-      - "18082:18082"
+      - "127.0.0.1:18082:18082"
     depends_on:
       nacos: { condition: service_healthy }
       mysql: { condition: service_healthy }
 
   agent-content-service:
+    <<: *app-defaults
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-content-service/target/agent-content-service-0.0.1-SNAPSHOT.jar
     environment:
-      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-}
+      <<: *observability
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
+      AUTH_SERVICE_URL: http://agent-auth-service:18081
+      MEDIA_SERVICE_URL: http://agent-media-service:18082
+      PLATFORM_IMAGE_MODEL: ${PLATFORM_IMAGE_MODEL:-qwen-image-3.0-pro}
+      OSS_ENABLED: ${OSS_ENABLED:-false}
+      ALIYUN_OSS_REGION: ${ALIYUN_OSS_REGION:-cn-beijing}
+      ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET:-}
+      ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT:-oss-cn-beijing.aliyuncs.com}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
       SERVER_PORT: 18083
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
@@ -136,20 +254,30 @@ services:
       MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
-      - "18083:18083"
+      - "127.0.0.1:18083:18083"
     depends_on:
       nacos: { condition: service_healthy }
       mysql: { condition: service_healthy }
 
   agent-orchestrator-service:
+    <<: *app-defaults
+    mem_limit: 1024m
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile.service
       args:
         JAR_FILE: agent-orchestrator-service/target/agent-orchestrator-service-0.0.1-SNAPSHOT.jar
     environment:
+      <<: *observability
       AUTH_SERVICE_URL: http://agent-auth-service:18081
+      CHAT_SERVICE_URL: http://agent-chat-service:18085
+      RAG_SERVICE_URL: http://agent-rag-service:18086
+      MEDIA_SERVICE_URL: http://agent-media-service:18082
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       SERVER_PORT: 18084
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
@@ -162,7 +290,55 @@ services:
       MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
     ports:
-      - "18084:18084"
+      - "127.0.0.1:18084:18084"
     depends_on:
       nacos: { condition: service_healthy }
       mysql: { condition: service_healthy }
+
+  agent-rag-service:
+    <<: *app-defaults
+    mem_limit: 1024m
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        JAR_FILE: agent-rag-service/target/agent-rag-service-0.0.1-SNAPSHOT.jar
+    environment:
+      <<: *observability
+      MODEL_FIRST_OUTPUT_TIMEOUT_SECONDS: ${MODEL_FIRST_OUTPUT_TIMEOUT_SECONDS:-15}
+      MODEL_IDLE_TIMEOUT_SECONDS: ${MODEL_IDLE_TIMEOUT_SECONDS:-20}
+      MODEL_TOTAL_TIMEOUT_SECONDS: ${MODEL_TOTAL_TIMEOUT_SECONDS:-60}
+      MODEL_FALLBACK_TIMEOUT_SECONDS: ${MODEL_FALLBACK_TIMEOUT_SECONDS:-30}
+      SERVER_PORT: 18086
+      RAG_SERVICE_PORT: 18086
+      AUTH_SERVICE_URL: http://agent-auth-service:18081
+      CHAT_SERVICE_URL: http://agent-chat-service:18085
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-agent}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
+      RAG_RERANK_MINIMUM: ${RAG_RERANK_MINIMUM:-0.25}
+      RAG_DENSE_RRF_WEIGHT: ${RAG_DENSE_RRF_WEIGHT:-1.0}
+      INTERNAL_PRINCIPAL_SECRETS: ${INTERNAL_PRINCIPAL_SECRETS:-}
+      INTERNAL_PRINCIPAL_ACTIVE_KEY_ID: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:-current}
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      MILVUS_URI: http://milvus:19530
+      MILVUS_TOKEN: ${MILVUS_TOKEN:-}
+      RAG_STORAGE_ROOT: /var/lib/agent-rag
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+    volumes: [rag-documents:/var/lib/agent-rag]
+    ports: ["127.0.0.1:18086:18086"]
+    depends_on:
+      nacos: {condition: service_healthy}
+      mysql: {condition: service_healthy}
+      milvus: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+volumes:
+  rag-documents:

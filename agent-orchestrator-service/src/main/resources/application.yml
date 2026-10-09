@@ -26,9 +26,22 @@ server:
   port: ${SERVER_PORT:18084}
   shutdown: graceful
 app:
+  chat:
+    base-url: ${CHAT_SERVICE_URL:http://127.0.0.1:18085}
+  rag:
+    base-url: ${RAG_SERVICE_URL:http://127.0.0.1:18086}
+  media:
+    base-url: ${MEDIA_SERVICE_URL:http://127.0.0.1:18082}
+  security:
+    internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
+    internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
+    default-tenant-id: ${DEFAULT_TENANT_ID:local}
   auth:
     base-url: ${AUTH_SERVICE_URL:http://127.0.0.1:18081}
     session-cookie: ${AUTH_SESSION_COOKIE:bbb_agent_session}
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true
+  tracing:
+    sampling.probability: ${TRACING_SAMPLE_RATE:0.1}
+    export.zipkin.endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}

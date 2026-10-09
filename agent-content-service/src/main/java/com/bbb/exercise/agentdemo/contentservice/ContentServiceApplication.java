@@ -8,10 +8,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = {
         "com.bbb.exercise.agentdemo.contentservice",
-        "com.bbb.exercise.agentdemo1_0",
+        "com.bbb.exercise.agentdemo.contentservice.bobo",
+        "com.bbb.exercise.agentdemo.runtime.storage",
+        "com.bbb.exercise.agentdemo.runtime.client",
+        "com.bbb.exercise.agentdemo.runtime.config",
+        "com.bbb.exercise.agentdemo.runtime.identity",
+        "com.bbb.exercise.agentdemo.contentservice.zine",
         "com.bbb.exercise.agentdemo.common"
 })
-@ConfigurationPropertiesScan(basePackages = "com.bbb.exercise.agentdemo1_0")
+@ConfigurationPropertiesScan(basePackages = {"com.bbb.exercise.agentdemo.runtime.config", "com.bbb.exercise.agentdemo.contentservice"})
 @EnableDiscoveryClient
 @EnableScheduling
 public class ContentServiceApplication {

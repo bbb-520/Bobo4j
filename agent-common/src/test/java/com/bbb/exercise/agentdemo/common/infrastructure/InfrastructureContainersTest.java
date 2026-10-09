@@ -16,7 +16,7 @@ class InfrastructureContainersTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
 
     @Container
-    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine")
+    static final GenericContainer<?> REDIS = new GenericContainer<>("redis/redis-stack-server:7.4.0-v8")
             .withExposedPorts(6379);
 
     @Container

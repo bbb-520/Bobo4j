@@ -13,18 +13,14 @@ class RootAggregatorContractTest {
         Path repositoryRoot = locateRepositoryRoot();
 
         assertThat(Files.exists(repositoryRoot.resolve("src"))).isFalse();
-        assertThat(Files.isDirectory(repositoryRoot.resolve("agent-chat-legacy/src/main/java"))).isTrue();
-        assertThat(Files.isDirectory(repositoryRoot.resolve("agent-chat-legacy/src/main/resources"))).isTrue();
-
-        String legacyPom = Files.readString(repositoryRoot.resolve("agent-chat-legacy/pom.xml"));
-        assertThat(legacyPom).doesNotContain("../src");
+        assertThat(Files.exists(repositoryRoot.resolve("agent-chat-legacy"))).isFalse();
     }
 
     private static Path locateRepositoryRoot() {
         Path candidate = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
         while (candidate != null) {
             if (Files.isRegularFile(candidate.resolve("pom.xml"))
-                    && Files.isDirectory(candidate.resolve("agent-chat-legacy"))) {
+                    && Files.isDirectory(candidate.resolve("agent-api"))) {
                 return candidate;
             }
             candidate = candidate.getParent();

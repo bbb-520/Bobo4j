@@ -11,6 +11,8 @@
     </parent>
     <artifactId>agent-orchestrator-service</artifactId>
     <dependencies>
+        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.bbb.exercise</groupId><artifactId>agent-runtime</artifactId><version>${project.version}</version></dependency>
         <dependency>
             <groupId>com.bbb.exercise</groupId>
             <artifactId>agent-common</artifactId>
@@ -34,8 +36,8 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>

@@ -2,26 +2,26 @@ package com.bbb.exercise.agentdemo.orchestrator.service;
 
 import com.bbb.exercise.agentdemo.orchestrator.domain.AgentRun;
 import com.bbb.exercise.agentdemo.orchestrator.domain.AgentRun.RunStatus;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Orchestrator 的持久化工作流状态机。
+ *
+ * <p>生产实现只走 JDBC：没有内存回退，没有无 owner 的入口。
+ * 状态推进使用 {@code user_id} + {@code version} 双重条件做乐观锁，
+ * 影响行数不为 1 时视为并发冲突（设计文档 §13）。
+ */
 @Service
 public class AgentWorkflowService {
-    private final ConcurrentHashMap<UUID, AgentRun> runs = new ConcurrentHashMap<>();
     private final JdbcTemplate jdbc;
 
-    public AgentWorkflowService() {
-        this.jdbc = null;
-    }
-
-    @Autowired
     public AgentWorkflowService(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        this.jdbc = Objects.requireNonNull(jdbc, "JdbcTemplate 不能为空");
     }
 
     public AgentRun start(String workflow, String input, String userId) {
@@ -33,68 +33,51 @@ public class AgentWorkflowService {
             throw new IllegalArgumentException("工作流输入不能为空");
         }
         AgentRun run = new AgentRun(UUID.randomUUID(), "REVISE", userId, input,
-                RunStatus.DRAFT, Instant.now(), Instant.now());
-        if (jdbc == null) {
-            runs.put(run.id(), run);
-        } else {
-            jdbc.update("INSERT INTO agent_run(id,workflow,user_id,input_text,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    run.id().toString(), run.workflow(), run.userId(), run.input(), run.status().name(),
-                    run.createdAt(), run.updatedAt());
-        }
+                RunStatus.DRAFT, 0L, Instant.now(), Instant.now());
+        jdbc.update("INSERT INTO agent_run(id,workflow,user_id,input_text,status,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                run.id().toString(), run.workflow(), run.userId(), run.input(), run.status().name(),
+                run.version(), run.createdAt(), run.updatedAt());
         return run;
     }
 
-    public AgentRun advance(UUID id, RunStatus next) {
-        return advance(id, next, null);
-    }
-
-    /** Advances a run after checking that the caller owns it. */
+    /**
+     * 只推进调用者拥有的 run。owner 与 version 都是必须满足的条件，
+     * 因此越权推进和陈旧版本推进都会失败。
+     */
     public AgentRun advance(UUID id, RunStatus next, String userId) {
-        if (userId != null) requireOwner(userId);
-        if (jdbc != null) {
-            AgentRun current = userId == null ? get(id) : get(id, userId);
-            if (current == null) throw new IllegalArgumentException("AgentRun 不存在: " + id);
-            if (!allowed(current.status(), next)) {
-                throw new IllegalStateException("非法状态转移: " + current.status() + " -> " + next);
-            }
-            int updated = jdbc.update("UPDATE agent_run SET status=?,updated_at=? WHERE id=? AND status=?",
-                    next.name(), Instant.now(), id.toString(), current.status().name());
-            if (updated != 1) throw new IllegalStateException("AgentRun 状态已被其它 Worker 修改");
-            return get(id);
+        requireOwner(userId);
+        AgentRun current = get(id, userId);
+        if (current == null) {
+            throw new IllegalArgumentException("AgentRun 不存在: " + id);
         }
-        return runs.compute(id, (key, current) -> {
-            if (current == null) throw new IllegalArgumentException("AgentRun 不存在: " + id);
-            if (userId != null && !current.userId().equals(userId)) {
-                throw new IllegalArgumentException("AgentRun 不存在: " + id);
-            }
-            if (!allowed(current.status(), next)) {
-                throw new IllegalStateException("非法状态转移: " + current.status() + " -> " + next);
-            }
-            return current.advance(next);
-        });
+        if (!allowed(current.status(), next)) {
+            throw new IllegalStateException("非法状态转移: " + current.status() + " -> " + next);
+        }
+        int updated = jdbc.update("UPDATE agent_run SET status=?,version=version+1,updated_at=? WHERE id=? AND user_id=? AND version=?",
+                next.name(), Instant.now(), id.toString(), userId, current.version());
+        if (updated != 1) {
+            throw new IllegalStateException("AgentRun 状态已被其它 Worker 修改");
+        }
+        AgentRun advanced = get(id, userId);
+        if (advanced == null) {
+            throw new IllegalStateException("AgentRun 推进后不可读: " + id);
+        }
+        return advanced;
     }
 
-    public AgentRun get(UUID id) {
-        return get(id, null);
-    }
-
-    /** Returns a run only when it belongs to the supplied owner. */
+    /** 只返回属于指定 owner 的 run；不存在或不属于该 owner 时返回 null。 */
     public AgentRun get(UUID id, String userId) {
-        if (userId != null) requireOwner(userId);
-        if (jdbc != null) {
-            String sql = "SELECT id,workflow,user_id,input_text,status,created_at,updated_at FROM agent_run WHERE id=?"
-                    + (userId == null ? "" : " AND user_id=?");
-            Object[] args = userId == null ? new Object[]{id.toString()} : new Object[]{id.toString(), userId};
-            var rows = jdbc.query(sql,
-                    (rs, rowNum) -> new AgentRun(UUID.fromString(rs.getString("id")), rs.getString("workflow"),
-                            rs.getString("user_id"), rs.getString("input_text"),
-                            RunStatus.valueOf(rs.getString("status")),
-                            rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
-                    args);
-            return rows.isEmpty() ? null : rows.get(0);
-        }
-        AgentRun run = runs.get(id);
-        return run != null && (userId == null || run.userId().equals(userId)) ? run : null;
+        requireOwner(userId);
+        var rows = jdbc.query("""
+                        SELECT id,workflow,user_id,input_text,status,version,created_at,updated_at
+                        FROM agent_run WHERE id=? AND user_id=?
+                        """,
+                (rs, rowNum) -> new AgentRun(UUID.fromString(rs.getString("id")), rs.getString("workflow"),
+                        rs.getString("user_id"), rs.getString("input_text"),
+                        RunStatus.valueOf(rs.getString("status")), rs.getLong("version"),
+                        rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
+                id.toString(), userId);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private static void requireOwner(String userId) {

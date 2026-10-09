@@ -8,44 +8,10 @@ import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-/** Small dependency-free HMAC principal contract for transitional service calls. */
+/** Small dependency-free HMAC principal contract for scoped internal service calls. */
 public final class SignedPrincipal {
     private static final String HMAC = "HmacSHA256";
     private SignedPrincipal() {}
-
-    public static String issue(String service, String subject, String tenant, Instant expiresAt, byte[] secret) {
-        return issue("default", service, subject, tenant, expiresAt, secret);
-    }
-
-    public static String issue(String keyId, String service, String subject, String tenant, Instant expiresAt, byte[] secret) {
-        if (blank(keyId)) throw new IllegalArgumentException("签名 principal keyId 无效");
-        if (blank(service) || blank(subject) || blank(tenant) || expiresAt == null || secret == null || secret.length < 32)
-            throw new IllegalArgumentException("签名 principal 参数无效");
-        String payload = keyId + "|" + service + "|" + subject + "|" + tenant + "|" + expiresAt.getEpochSecond();
-        return encode(payload) + "." + encode(sign(payload, secret));
-    }
-
-    public static Principal verify(String token, byte[] secret, Instant now) {
-        return verify(token, Map.of("default", secret), now);
-    }
-
-    public static Principal verify(String token, Map<String, byte[]> secrets, Instant now) {
-        if (secrets == null || secrets.isEmpty()) throw new IllegalArgumentException("签名 principal 密钥未配置");
-        if (blank(token)) throw new IllegalArgumentException("签名 principal 配置无效");
-        String[] parts = token.split("\\.", -1);
-        if (parts.length != 2) throw new IllegalArgumentException("签名 principal 格式无效");
-        String payload = decode(parts[0]);
-        String[] fields = payload.split("\\|", -1);
-        if (fields.length != 5 || blank(fields[0])) throw new IllegalArgumentException("签名 principal 内容无效");
-        byte[] secret = secrets.get(fields[0]);
-        if (secret == null || secret.length < 32) throw new IllegalArgumentException("签名 principal keyId 未知");
-        byte[] expected = sign(payload, secret);
-        if (!MessageDigest.isEqual(expected, decodeBytes(parts[1]))) throw new IllegalArgumentException("签名 principal 校验失败");
-        if (blank(fields[1]) || blank(fields[2]) || blank(fields[3])) throw new IllegalArgumentException("签名 principal 内容无效");
-        long expiry; try { expiry = Long.parseLong(fields[4]); } catch (NumberFormatException e) { throw new IllegalArgumentException("签名 principal 过期时间无效", e); }
-        if (now == null || expiry <= now.getEpochSecond()) throw new IllegalArgumentException("签名 principal 已过期");
-        return new Principal(fields[0], fields[1], fields[2], fields[3], Instant.ofEpochSecond(expiry));
-    }
 
     private static byte[] sign(String payload, byte[] secret) {
         try { Mac mac = Mac.getInstance(HMAC); mac.init(new SecretKeySpec(secret, HMAC)); return mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)); }

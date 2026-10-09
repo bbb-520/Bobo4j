@@ -1,0 +1,6 @@
+ALTER TABLE image_job
+ ADD COLUMN result_ready BOOLEAN NOT NULL DEFAULT FALSE,
+ ADD COLUMN generated_url TEXT NULL,
+ ADD COLUMN input_tokens BIGINT NULL,
+ ADD COLUMN output_tokens BIGINT NULL,
+ ADD COLUMN next_retry_at DATETIME(3) NULL;

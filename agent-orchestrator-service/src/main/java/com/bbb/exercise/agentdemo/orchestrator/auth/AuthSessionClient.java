@@ -10,7 +10,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 
-/** Transitional session introspection against the Auth service; never trusts identity headers. */
+/** Session introspection against the Auth service; never trusts identity headers. */
 @Component
 public class AuthSessionClient {
     private final WebClient client;

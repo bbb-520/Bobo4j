@@ -1,7 +1,7 @@
 package com.bbb.exercise.agentdemo.mediaservice;
 
-import com.bbb.exercise.agentdemo1_0.config.ZineProperties;
-import com.bbb.exercise.agentdemo1_0.zine.DashScopeImageGenerationClient;
+import com.bbb.exercise.agentdemo.mediaservice.config.ZineProperties;
+import com.bbb.exercise.agentdemo.mediaservice.provider.DashScopeImageGenerationClient;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;

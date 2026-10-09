@@ -2,9 +2,9 @@ package com.bbb.exercise.agentdemo.mediaservice;
 
 import com.bbb.exercise.agentdemo.common.security.PrincipalKeyRing;
 import com.bbb.exercise.agentdemo.common.security.SignedPrincipal;
-import com.bbb.exercise.agentdemo1_0.image.ImageAssetService;
-import com.bbb.exercise.agentdemo1_0.image.ImageJobService;
-import com.bbb.exercise.agentdemo1_0.oss.OssStorageService;
+import com.bbb.exercise.agentdemo.mediaservice.image.ImageAssetService;
+import com.bbb.exercise.agentdemo.mediaservice.image.ImageJobService;
+import com.bbb.exercise.agentdemo.runtime.storage.OssStorageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
@@ -12,12 +12,21 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Arrays;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class InternalMediaBoundaryTest {
+    @Test
+    void exposesOnlyTheSignedMediaBoundary() {
+        assertThat(Arrays.stream(InternalMediaController.class.getDeclaredMethods())
+                .map(java.lang.reflect.Method::getName))
+                .doesNotContain("ownsAsset");
+    }
+
     @Test
     void isolatesBlockingAssetLookupFromReactiveEventLoop() {
         byte[] key = new byte[32];

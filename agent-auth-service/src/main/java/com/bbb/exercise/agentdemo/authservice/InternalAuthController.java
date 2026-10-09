@@ -1,12 +1,13 @@
 package com.bbb.exercise.agentdemo.authservice;
 
 import com.bbb.exercise.agentdemo.api.dto.UserIdentityDto;
-import com.bbb.exercise.agentdemo1_0.auth.AuthService;
-import com.bbb.exercise.agentdemo1_0.auth.UserApiKeyService;
-import com.bbb.exercise.agentdemo1_0.model.ModelCapability;
-import com.bbb.exercise.agentdemo1_0.model.ModelProfileService;
+import com.bbb.exercise.agentdemo.auth.AuthService;
+import com.bbb.exercise.agentdemo.auth.UserApiKeyService;
+import com.bbb.exercise.agentdemo.api.model.ModelCapability;
+import com.bbb.exercise.agentdemo.auth.model.ModelProfileService;
 import com.bbb.exercise.agentdemo.common.security.SignedPrincipal;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,6 +25,7 @@ public class InternalAuthController {
     private final ModelProfileService modelProfiles;
     private final Map<String, byte[]> principalSecrets;
 
+    @Autowired
     public InternalAuthController(AuthService auth, UserApiKeyService userKeys, ModelProfileService modelProfiles,
                                   @Value("${app.security.internal-principal-secrets:}") String encodedSecret) {
         this.auth = auth;

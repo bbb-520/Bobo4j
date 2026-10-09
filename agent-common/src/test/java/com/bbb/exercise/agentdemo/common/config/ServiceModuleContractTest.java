@@ -18,6 +18,7 @@ class ServiceModuleContractTest {
                 "agent-chat-service", "ChatServiceApplication.java",
                 "agent-media-service", "MediaServiceApplication.java",
                 "agent-content-service", "ContentServiceApplication.java",
+                "agent-rag-service", "RagServiceApplication.java",
                 "agent-orchestrator-service", "OrchestratorApplication.java");
 
         for (var entry : services.entrySet()) {

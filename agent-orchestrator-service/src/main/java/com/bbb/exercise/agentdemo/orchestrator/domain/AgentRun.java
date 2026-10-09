@@ -4,10 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record AgentRun(UUID id, String workflow, String userId, String input,
-                       RunStatus status, Instant createdAt, Instant updatedAt) {
-    public AgentRun advance(RunStatus next) {
-        return new AgentRun(id, workflow, userId, input, next, createdAt, Instant.now());
-    }
+                       RunStatus status, long version, Instant createdAt, Instant updatedAt) {
 
     public enum RunStatus {
         DRAFT, REVIEWING, REVISING, VALIDATING, APPROVED, REJECTED

@@ -2,11 +2,11 @@ package com.bbb.exercise.agentdemo.mediaservice;
 
 import com.bbb.exercise.agentdemo.common.security.PrincipalKeyRing;
 import com.bbb.exercise.agentdemo.common.security.SignedPrincipal;
-import com.bbb.exercise.agentdemo1_0.identity.ChatIdentity;
-import com.bbb.exercise.agentdemo1_0.image.ImageAssetService;
-import com.bbb.exercise.agentdemo1_0.image.ImageJobService;
-import com.bbb.exercise.agentdemo1_0.dto.ChatAttachmentRequest;
-import com.bbb.exercise.agentdemo1_0.oss.OssStorageService;
+import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
+import com.bbb.exercise.agentdemo.mediaservice.image.ImageAssetService;
+import com.bbb.exercise.agentdemo.mediaservice.image.ImageJobService;
+import com.bbb.exercise.agentdemo.api.dto.ChatAttachmentRequest;
+import com.bbb.exercise.agentdemo.runtime.storage.OssStorageService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,15 +76,6 @@ public class InternalMediaController {
             return jobs.create(new ChatIdentity(principal.tenant(), principal.subject(), true), request.conversationId(),
                     request.prompt(), java.util.List.of(attachment));
         }).subscribeOn(Schedulers.boundedElastic());
-    }
-
-    @GetMapping("/assets/{assetId}/ownership")
-    public boolean ownsAsset(@PathVariable String assetId,
-                             @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
-        // This legacy endpoint used to return true for any non-empty values,
-        // allowing callers to forge ownership. Until a signed service principal
-        // contract exists, fail closed instead of making a security decision.
-        throw new ResponseStatusException(HttpStatus.GONE, "旧内部所有权接口已停用");
     }
 
     private SignedPrincipal.Scoped verify(String token, String operation) {

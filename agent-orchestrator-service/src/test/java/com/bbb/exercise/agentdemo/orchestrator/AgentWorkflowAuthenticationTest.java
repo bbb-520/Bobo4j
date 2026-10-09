@@ -20,6 +20,11 @@ class AgentWorkflowAuthenticationTest {
         if (auth != null) auth.stop(0);
     }
 
+    /** 生产实现只接受 JdbcTemplate 注入，测试统一使用内存替身。 */
+    private static AgentWorkflowService newService() {
+        return new AgentWorkflowService(new FakeAgentRunJdbc().jdbc());
+    }
+
     private WebTestClient client(AgentWorkflowService workflows, int authStatus, String body,
                                  AtomicReference<String> forwardedCookie) throws Exception {
         auth = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -38,7 +43,7 @@ class AgentWorkflowAuthenticationTest {
 
     @Test
     void forgedUserHeaderCannotCreateRunWithoutSession() {
-        var client = WebTestClient.bindToController(new AgentWorkflowController(new AgentWorkflowService(),
+        var client = WebTestClient.bindToController(new AgentWorkflowController(newService(),
                 new AuthSessionClient("http://127.0.0.1:1", "bbb_agent_session"))).build();
         client.post().uri("/api/agent-runs?input=hello").header("X-User-Id", "victim")
                 .exchange().expectStatus().isUnauthorized();
@@ -46,7 +51,7 @@ class AgentWorkflowAuthenticationTest {
 
     @Test
     void authenticatedUserCannotReadAnotherOwnersRunEvenWithForgedHeader() throws Exception {
-        var workflows = new AgentWorkflowService();
+        var workflows = newService();
         var victimRun = workflows.start("REVISE", "private", "victim");
         var cookie = new AtomicReference<String>();
         var client = client(workflows, 200,
@@ -58,12 +63,12 @@ class AgentWorkflowAuthenticationTest {
         client.post().uri("/api/agent-runs/" + victimRun.id() + "/advance?status=REVIEWING")
                 .header("X-User-Id", "victim").cookie("bbb_agent_session", "real-session")
                 .exchange().expectStatus().isNotFound();
-        assertThat(workflows.get(victimRun.id()).status().name()).isEqualTo("DRAFT");
+        assertThat(workflows.get(victimRun.id(), "victim").status().name()).isEqualTo("DRAFT");
     }
 
     @Test
     void validSessionCreatesRunForAuthIdentityNotHeader() throws Exception {
-        var client = client(new AgentWorkflowService(), 200,
+        var client = client(newService(), 200,
                 "{\"authenticated\":true,\"userId\":\"owner\",\"username\":\"tester\"}", new AtomicReference<>());
         client.post().uri("/api/agent-runs?input=hello").header("X-User-Id", "victim")
                 .cookie("bbb_agent_session", "real-session").exchange().expectStatus().isOk()
@@ -72,20 +77,20 @@ class AgentWorkflowAuthenticationTest {
 
     @Test
     void rejectedSessionFailsClosed() throws Exception {
-        var client = client(new AgentWorkflowService(), 401, "{}", new AtomicReference<>());
+        var client = client(newService(), 401, "{}", new AtomicReference<>());
         client.post().uri("/api/agent-runs?input=hello").cookie("bbb_agent_session", "expired")
                 .exchange().expectStatus().isUnauthorized();
     }
 
     @Test
     void authOutageFailsClosed() throws Exception {
-        var client = client(new AgentWorkflowService(), 500, "{}", new AtomicReference<>());
+        var client = client(newService(), 500, "{}", new AtomicReference<>());
         client.post().uri("/api/agent-runs?input=hello").cookie("bbb_agent_session", "real-session")
                 .exchange().expectStatus().isEqualTo(503);
     }
     @Test
     void unauthenticatedResponseIsNotAcceptedAsIdentity() throws Exception {
-        var client = client(new AgentWorkflowService(), 200,
+        var client = client(newService(), 200,
                 "{\"authenticated\":false,\"userId\":\"victim\"}", new AtomicReference<>());
         client.post().uri("/api/agent-runs?input=hello").cookie("bbb_agent_session", "invalid")
                 .exchange().expectStatus().isUnauthorized();

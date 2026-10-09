@@ -14,6 +14,7 @@ class FlywayIsolationContractTest {
             "agent-chat-service", "flyway_schema_history_chat",
             "agent-media-service", "flyway_schema_history_media",
             "agent-content-service", "flyway_schema_history_content",
+            "agent-rag-service", "flyway_schema_history_rag",
             "agent-orchestrator-service", "flyway_schema_history_orchestrator"
     );
 
@@ -22,6 +23,7 @@ class FlywayIsolationContractTest {
         for (var entry : SERVICES.entrySet()) {
             String yaml = Files.readString(Path.of("..", entry.getKey(), "src/main/resources/application.yml"));
             assertThat(yaml).as(entry.getKey()).contains("table: " + entry.getValue());
+            assertThat(Files.readString(Path.of("..",entry.getKey(),"pom.xml"))).as(entry.getKey()+" Boot 4 Flyway autoconfiguration").contains("spring-boot-starter-flyway");
         }
     }
 }

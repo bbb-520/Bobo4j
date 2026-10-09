@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.bbb.exercise</groupId>
+        <artifactId>platform-parent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../platform-parent/pom.xml</relativePath>
+    </parent>
+    <artifactId>agent-architecture-tests</artifactId>
+    <name>agent-architecture-tests</name>
+    <description>架构边界门禁：不参与运行，只固化模块边界、单一 owner 与部署口径一致性</description>
+
+    <properties>
+        <archunit.version>1.4.0</archunit.version>
+    </properties>
+
+    <dependencies>
+        <dependency><groupId>com.bbb.exercise</groupId><artifactId>agent-rag-service</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+        <!--
+          只引入需要做字节码级校验的模块，保证 Maven 先编译它们的 target/classes。
+          刻意不引入全部模块：架构门禁通过仓库源码扫描检查跨模块边界，
+          其余门禁只读取源码目录，不需要编译产物。
+
+          注意：这些依赖只用来驱动 reactor 顺序。门禁本身不通过 Maven classpath 加载业务类，
+          而是由 ModuleClasses 从 <module>/target/classes 建独立类加载器 ——
+          因为 `mvn package` 会把 Spring Boot 应用重打包成 fat jar，
+          类被挪进 BOOT-INF/classes/，走 classpath 会直接 ClassNotFoundException。
+        -->
+        <dependency>
+            <groupId>com.bbb.exercise</groupId>
+            <artifactId>agent-gateway</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.bbb.exercise</groupId>
+            <artifactId>agent-orchestrator-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          下面 4 个由 CrossServicePackageBoundaryGateTest 使用：它要一次性导入 5 个领域服务的
+          字节码才能判断"A 服务有没有编译期依赖 B 服务"。缺任何一个都会因为 target/classes
+          不存在而直接失败 —— 这属于刻意的强耦合：门禁必须能覆盖全量服务，不能只覆盖"顺手引了的那些"。
+        -->
+        <dependency>
+            <groupId>com.bbb.exercise</groupId>
+            <artifactId>agent-auth-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.bbb.exercise</groupId>
+            <artifactId>agent-chat-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.bbb.exercise</groupId>
+            <artifactId>agent-media-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.bbb.exercise</groupId>
+            <artifactId>agent-content-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      本模块没有主源码。显式声明 classesDirectory，避免在 target/classes
+                      不存在时被 surefire 判定为"无可执行内容"而静默跳过门禁。
+                      同时 src/main/resources 里放了一份 archunit.properties 作为配置锚点。
+                    -->
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

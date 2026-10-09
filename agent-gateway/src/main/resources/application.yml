@@ -27,6 +27,16 @@ spring:
 server:
   port: ${SERVER_PORT:18000}
   shutdown: graceful
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
+  auth:
+    base-url: ${AUTH_SERVICE_URL:http://127.0.0.1:18081}
+  security:
+    internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
+    internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
+    session-cookie-name: ${SESSION_COOKIE_NAME:bbb_agent_session}
+    default-tenant-id: ${DEFAULT_TENANT_ID:local}
 management:
   endpoint:
     health:

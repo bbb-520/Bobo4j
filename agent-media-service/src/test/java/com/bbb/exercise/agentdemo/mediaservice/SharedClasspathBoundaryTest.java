@@ -8,7 +8,7 @@ class SharedClasspathBoundaryTest {
     @Test
     void ossAdapterHasOneSharedDefinition() throws Exception {
         assertThat(Collections.list(getClass().getClassLoader().getResources(
-                "com/bbb/exercise/agentdemo1_0/oss/OssStorageService.class")))
-                .as("OSS adapter must be owned by common").hasSize(1);
+                "com/bbb/exercise/agentdemo/runtime/storage/OssStorageService.class")))
+                .as("OSS adapter must have one runtime definition").hasSize(1);
     }
 }

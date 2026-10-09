@@ -1,6 +1,7 @@
 services:
   nacos:
     image: nacos/nacos-server:v3.1.1
+    restart: unless-stopped
     container_name: agent-nacos
     environment:
       MODE: standalone
@@ -24,6 +25,7 @@ services:
 
   sentinel-dashboard:
     image: bladex/sentinel-dashboard:1.8.8
+    restart: unless-stopped
     container_name: agent-sentinel-dashboard
     environment:
       JAVA_OPTS: "-Xms256m -Xmx256m"
@@ -32,6 +34,7 @@ services:
 
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     container_name: agent-mysql
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
@@ -51,7 +54,10 @@ services:
 
   redis:
     image: redis/redis-stack-server:7.4.0-v8
+    restart: unless-stopped
     container_name: agent-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
     command: ["redis-stack-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-change-redis-me}"]
     ports:
       - "6379:6379"
@@ -63,8 +69,46 @@ services:
       timeout: 5s
       retries: 12
 
+  milvus:
+    image: milvusdb/milvus:v2.6.2
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt: [seccomp:unconfined]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - ./milvus/embedded-etcd.yml:/milvus/configs/embedEtcd.yaml:ro
+    ports: ["127.0.0.1:19530:19530", "127.0.0.1:9091:9091"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      start_period: 90s
+      timeout: 10s
+      retries: 12
+
+  prometheus:
+    image: prom/prometheus:v3.4.2
+    restart: unless-stopped
+    ports: ["127.0.0.1:19090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
+  zipkin:
+    image: openzipkin/zipkin:3.5.1
+    restart: unless-stopped
+    ports: ["127.0.0.1:9411:9411"]
+
 volumes:
   nacos-data:
   nacos-logs:
   mysql-data:
   redis-data:
+  milvus-data:
+  prometheus-data:

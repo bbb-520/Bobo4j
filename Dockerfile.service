@@ -4,10 +4,13 @@
 FROM eclipse-temurin:21-jre
 ARG JAR_FILE
 WORKDIR /app
-RUN addgroup --system app && adduser --system --ingroup app app
+RUN addgroup --system app && adduser --system --home /app --ingroup app app && mkdir -p /app/logs && chown app:app /app /app/logs
 COPY ${JAR_FILE} app.jar
 RUN chown app:app app.jar
 USER app
+ENV HOME="/app"
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
-EXPOSE 18080
+# Each service supplies its own SERVER_PORT through Compose or the environment.
+EXPOSE 18000 18081 18082 18083 18084 18085 18086
+HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=12 CMD curl -fsS "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" || exit 1
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

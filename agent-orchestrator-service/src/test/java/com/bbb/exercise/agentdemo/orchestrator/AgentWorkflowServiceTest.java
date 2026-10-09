@@ -8,28 +8,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentWorkflowServiceTest {
+
+    private static AgentWorkflowService service() {
+        return new AgentWorkflowService(new FakeAgentRunJdbc().jdbc());
+    }
+
     @Test
     void reviseWorkflowAdvancesInOrder() {
-        AgentWorkflowService service = new AgentWorkflowService();
+        AgentWorkflowService service = service();
         var run = service.start("REVISE", "draft", "u1");
-        run = service.advance(run.id(), RunStatus.REVIEWING);
-        run = service.advance(run.id(), RunStatus.REVISING);
-        run = service.advance(run.id(), RunStatus.VALIDATING);
-        run = service.advance(run.id(), RunStatus.APPROVED);
+        run = service.advance(run.id(), RunStatus.REVIEWING, "u1");
+        run = service.advance(run.id(), RunStatus.REVISING, "u1");
+        run = service.advance(run.id(), RunStatus.VALIDATING, "u1");
+        run = service.advance(run.id(), RunStatus.APPROVED, "u1");
         assertThat(run.status()).isEqualTo(RunStatus.APPROVED);
     }
 
     @Test
     void rejectsIllegalTransition() {
-        AgentWorkflowService service = new AgentWorkflowService();
+        AgentWorkflowService service = service();
         var run = service.start("REVISE", "draft", "u1");
-        assertThatThrownBy(() -> service.advance(run.id(), RunStatus.APPROVED))
+        assertThatThrownBy(() -> service.advance(run.id(), RunStatus.APPROVED, "u1"))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void rejectsAnonymousOrMissingOwner() {
-        AgentWorkflowService service = new AgentWorkflowService();
+        AgentWorkflowService service = service();
         assertThatThrownBy(() -> service.start("REVISE", "draft", "anonymous"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("用户身份");
@@ -40,7 +45,7 @@ class AgentWorkflowServiceTest {
 
     @Test
     void ownerCannotReadOrAdvanceAnotherOwnersRun() {
-        AgentWorkflowService service = new AgentWorkflowService();
+        AgentWorkflowService service = service();
         var run = service.start("REVISE", "draft", "u1");
 
         assertThat(service.get(run.id(), "u2")).isNull();

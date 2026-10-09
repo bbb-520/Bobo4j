@@ -64,3 +64,10 @@ app:
     max-attempts: ${IMAGE_JOBS_MAX_ATTEMPTS:2}
     lease-duration: ${IMAGE_JOBS_LEASE_DURATION:5m}
     worker-id: ${IMAGE_WORKER_ID:media-worker}
+  zine:
+    enabled: ${ZINE_ENABLED:true}
+    base-url: ${ZINE_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
+    endpoint: ${ZINE_IMAGE_ENDPOINT:/services/aigc/multimodal-generation/generation}
+    model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
+    size: ${ZINE_IMAGE_SIZE:1024*1707}
+    timeout: ${ZINE_IMAGE_TIMEOUT:180s}

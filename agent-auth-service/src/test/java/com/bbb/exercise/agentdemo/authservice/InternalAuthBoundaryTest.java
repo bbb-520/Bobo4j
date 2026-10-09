@@ -1,7 +1,7 @@
 package com.bbb.exercise.agentdemo.authservice;
 
 import com.bbb.exercise.agentdemo.common.security.SignedPrincipal;
-import com.bbb.exercise.agentdemo1_0.auth.AuthService;
+import com.bbb.exercise.agentdemo.auth.AuthService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import java.time.Instant;

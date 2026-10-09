@@ -7,6 +7,18 @@ spring:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:agent}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:agent}
     password: ${MYSQL_PASSWORD:change-me}
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:465}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: ${SMTP_SSL:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
@@ -30,9 +42,62 @@ management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true
 app:
+  platform:
+    api-key: ${PLATFORM_API_KEY:}
+    chat-model: ${PLATFORM_CHAT_MODEL:qwen-turbo}
+    vision-model: ${PLATFORM_VISION_MODEL:qwen-vl-plus}
+    image-model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
+    embedding-model: ${PLATFORM_EMBEDDING_MODEL:text-embedding-v4}
+    rerank-model: ${PLATFORM_RERANK_MODEL:qwen3-rerank}
+    evaluation-model: ${PLATFORM_EVALUATION_MODEL:qwen-plus}
+    fallback-model: ${PLATFORM_FALLBACK_MODEL:qwen-plus}
+    base-url: ${PLATFORM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    # qwen3-rerank requires the operator's regional workspace URL; no guessed universal endpoint.
+    rerank-base-url: ${PLATFORM_RERANK_BASE_URL:}
+    fallback-provider: ${PLATFORM_FALLBACK_PROVIDER:QWEN}
+    fallback-base-url: ${PLATFORM_FALLBACK_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    fallback-api-key: ${PLATFORM_FALLBACK_API_KEY:}
+  email:
+    from: ${SMTP_FROM:}
+    otp-secret: ${AUTH_OTP_SECRET:}
+  billing:
+    admin-user-ids: ${BILLING_ADMIN_USER_IDS:}
+    token-price-per-1k-micros: ${BILLING_TOKEN_PRICE_PER_1K_MICROS:10000}
+    text-reserve-micros: ${BILLING_TEXT_RESERVE_MICROS:200000}
+    image-price-micros: ${BILLING_IMAGE_PRICE_MICROS:1000000}
+    low-balance-micros: ${BILLING_LOW_BALANCE_MICROS:500000}
+    admission-aging-seconds: ${BILLING_ADMISSION_AGING_SECONDS:30}
+    platform-fault:
+      enabled: ${BILLING_PLATFORM_FAULT_ENABLED:false}
+      group-cap-micros: ${BILLING_PLATFORM_FAULT_GROUP_CAP_MICROS:400000}
+      window-cap-micros: ${BILLING_PLATFORM_FAULT_WINDOW_CAP_MICROS:2000000}
+      unresolved-cap: ${BILLING_PLATFORM_FAULT_UNRESOLVED_CAP:10}
+  payments:
+    notify-base-url: ${PAYMENT_NOTIFY_BASE_URL:}
+    alipay:
+      enabled: ${ALIPAY_ENABLED:false}
+      gateway: ${ALIPAY_GATEWAY:https://openapi.alipay.com/gateway.do}
+      app-id: ${ALIPAY_APP_ID:}
+      seller-id: ${ALIPAY_SELLER_ID:}
+      private-key-path: ${ALIPAY_PRIVATE_KEY_PATH:}
+      public-key-path: ${ALIPAY_PUBLIC_KEY_PATH:}
+    wechat:
+      enabled: ${WECHAT_PAY_ENABLED:false}
+      app-id: ${WECHAT_APP_ID:}
+      merchant-id: ${WECHAT_MERCHANT_ID:}
+      merchant-serial: ${WECHAT_MERCHANT_SERIAL:}
+      private-key-path: ${WECHAT_PRIVATE_KEY_PATH:}
+      api-v3-key: ${WECHAT_API_V3_KEY:}
+      public-key-id: ${WECHAT_PUBLIC_KEY_ID:}
+      public-key-path: ${WECHAT_PUBLIC_KEY_PATH:}
   security:
-    api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:}
+    # Server-side envelope key; this is not the user provider key.
+    # The local default keeps startup independent from provider credentials; override it in production.
+    api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+    api-key-encryption-keys: ${API_KEY_ENCRYPTION_KEYS:}
+    api-key-active-key-id: ${API_KEY_ACTIVE_KEY_ID:current}
     internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
+    internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
     anonymous-cookie-name: ${ANONYMOUS_COOKIE_NAME:bbb_agent_anonymous_id}
     session-cookie-name: ${SESSION_COOKIE_NAME:bbb_agent_session}
     default-tenant-id: ${DEFAULT_TENANT_ID:local}

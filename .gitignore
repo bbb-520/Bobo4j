@@ -13,6 +13,7 @@ build/
 *.jar
 *.war
 .m2repo/
+__pycache__/
 
 # Agent 私有工作日志（不入仓）
 .workbuddy/memory/*.md
@@ -32,3 +33,14 @@ Thumbs.db
 # 部署密钥（只提交 .env.example）
 .env
 deploy/.env
+secrets/
+*.pem
+
+# 本地运维说明、环境变体和登录凭据
+HELP.md
+**/HELP.md
+.env.*
+!.env.example
+*.cookies
+data/
+compose.server.local.yml

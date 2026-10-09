@@ -16,12 +16,13 @@ class AgentWorkflowPersistenceTest {
     @Test
     void startsWorkflowWithDurableRunInsert() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
 
         AgentWorkflowService service = new AgentWorkflowService(jdbc);
         AgentRun run = service.start("REVISE", "draft", "user-1");
 
         assertThat(run.status()).isEqualTo(AgentRun.RunStatus.DRAFT);
-        verify(jdbc).update(anyString(), any(), any(), any(), any(), any(), any(), any());
+        assertThat(run.version()).isZero();
+        verify(jdbc).update(anyString(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 }

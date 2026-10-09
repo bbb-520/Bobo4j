@@ -58,7 +58,7 @@ app:
     enabled: ${ZINE_ENABLED:true}
     base-url: ${ZINE_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
     endpoint: ${ZINE_IMAGE_ENDPOINT:/services/aigc/multimodal-generation/generation}
-    model: ${ZINE_IMAGE_MODEL:qwen-image-3.0-pro}
+    model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
     size: ${ZINE_IMAGE_SIZE:1024*1707}
     prompt-extend: ${ZINE_PROMPT_EXTEND:true}
     watermark: ${ZINE_WATERMARK:false}

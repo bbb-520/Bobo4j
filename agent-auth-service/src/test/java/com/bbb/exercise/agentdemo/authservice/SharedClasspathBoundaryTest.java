@@ -9,10 +9,9 @@ class SharedClasspathBoundaryTest {
     @Test
     void modelAndHealthContractsHaveExactlyOneDefinitionOnRuntimeClasspath() throws Exception {
         for (String resource : new String[] {
-                "com/bbb/exercise/agentdemo1_0/model/ModelProfile.class",
-                "com/bbb/exercise/agentdemo1_0/model/ModelProviderRegistry.class",
-                "com/bbb/exercise/agentdemo1_0/health/HealthController.class",
-                "com/bbb/exercise/agentdemo1_0/identity/ChatIdentityResolver.class"}) {
+                "com/bbb/exercise/agentdemo/api/model/ModelProfile.class",
+                "com/bbb/exercise/agentdemo/api/model/ModelProviderRegistry.class",
+                "com/bbb/exercise/agentdemo/runtime/identity/ChatIdentityResolver.class"}) {
             assertThat(Collections.list(getClass().getClassLoader().getResources(resource)))
                     .as("Non-shadowed runtime contract: %s", resource).hasSize(1);
         }
