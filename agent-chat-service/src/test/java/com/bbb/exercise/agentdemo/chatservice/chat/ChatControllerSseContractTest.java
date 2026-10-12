@@ -13,10 +13,12 @@ import java.util.Arrays;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+/** 验证聊天入口的 SSE 内容协商及已公开路由的兼容性。 */
 class ChatControllerSseContractTest {
     @Test
     void invalidChatRequestStillNegotiatesEventStream() {
-        ChatController controller = new ChatController(mock(ChatService.class), mock(ChatIdentityResolver.class));
+        ChatController controller =
+                new ChatController(mock(ChatService.class), mock(ChatIdentityResolver.class));
         var exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/chat").build());
 
         var response = controller.chat(new ChatRequest(), exchange).block();
@@ -27,9 +29,13 @@ class ChatControllerSseContractTest {
 
     @Test
     void keepsTheDocumentedAndLegacyChatRoutesAvailable() throws NoSuchMethodException {
-        var mapping = ChatController.class.getDeclaredMethod("chat", ChatRequest.class,
-                        org.springframework.web.server.ServerWebExchange.class)
-                .getAnnotation(PostMapping.class);
+        var mapping =
+                ChatController.class
+                        .getDeclaredMethod(
+                                "chat",
+                                ChatRequest.class,
+                                org.springframework.web.server.ServerWebExchange.class)
+                        .getAnnotation(PostMapping.class);
 
         assertThat(Arrays.asList(mapping.path())).contains("", "/completions");
     }

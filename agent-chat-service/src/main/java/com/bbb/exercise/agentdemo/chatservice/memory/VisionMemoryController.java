@@ -20,10 +20,12 @@ public class VisionMemoryController {
     private final ChatIdentityResolver identities;
     private final VisionMemoryService memories;
 
+    // 1. 记忆上下文入口：基于当前认证身份返回与问题相关的视觉记忆。
     @GetMapping("/context")
-    public Mono<Map<String, String>> context(@RequestParam String query,
-                                             ServerWebExchange exchange) {
-        return identities.resolveRequired(exchange)
+    public Mono<Map<String, String>> context(
+            @RequestParam String query, ServerWebExchange exchange) {
+        return identities
+                .resolveRequired(exchange)
                 .map(identity -> Map.of("context", memories.augment(identity, query, 5)))
                 .subscribeOn(Schedulers.boundedElastic());
     }

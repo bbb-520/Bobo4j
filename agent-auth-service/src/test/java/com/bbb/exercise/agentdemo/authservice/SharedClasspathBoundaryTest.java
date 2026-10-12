@@ -8,12 +8,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SharedClasspathBoundaryTest {
     @Test
     void modelAndHealthContractsHaveExactlyOneDefinitionOnRuntimeClasspath() throws Exception {
-        for (String resource : new String[] {
-                "com/bbb/exercise/agentdemo/api/model/ModelProfile.class",
-                "com/bbb/exercise/agentdemo/api/model/ModelProviderRegistry.class",
-                "com/bbb/exercise/agentdemo/runtime/identity/ChatIdentityResolver.class"}) {
+        for (String resource :
+                new String[] {
+                    "com/bbb/exercise/agentdemo/api/model/ModelProfile.class",
+                    "com/bbb/exercise/agentdemo/api/model/ModelProviderRegistry.class",
+                    "com/bbb/exercise/agentdemo/runtime/identity/ChatIdentityResolver.class"
+                }) {
             assertThat(Collections.list(getClass().getClassLoader().getResources(resource)))
-                    .as("Non-shadowed runtime contract: %s", resource).hasSize(1);
+                    .as("Non-shadowed runtime contract: %s", resource)
+                    .hasSize(1);
         }
     }
 }

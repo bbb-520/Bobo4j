@@ -19,32 +19,99 @@ public final class ModelProviderRegistry {
 
     public static ModelProviderRegistry defaultRegistry() {
         EnumMap<ModelProvider, ProviderDescriptor> values = new EnumMap<>(ModelProvider.class);
-        values.put(ModelProvider.GPT, descriptor(ModelProvider.GPT, "https://api.openai.com/v1", ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.IMAGE, ModelCapability.EMBEDDING, ModelCapability.EVALUATION, ModelCapability.FALLBACK));
-        values.put(ModelProvider.GEMINI, descriptor(ModelProvider.GEMINI, "https://generativelanguage.googleapis.com/v1beta/openai/", ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.EMBEDDING));
-        values.put(ModelProvider.QWEN, descriptor(ModelProvider.QWEN, "https://dashscope.aliyuncs.com/compatible-mode/v1", ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.IMAGE, ModelCapability.EMBEDDING, ModelCapability.RERANK, ModelCapability.EVALUATION, ModelCapability.FALLBACK));
-        values.put(ModelProvider.GLM, descriptor(ModelProvider.GLM, "https://open.bigmodel.cn/api/paas/v4", ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.IMAGE, ModelCapability.EMBEDDING));
-        values.put(ModelProvider.HY, descriptor(ModelProvider.HY, "https://api.hunyuan.cloud.tencent.com/v1", ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.IMAGE, ModelCapability.EMBEDDING));
+
+        values.put(
+                ModelProvider.GPT,
+                descriptor(
+                        ModelProvider.GPT,
+                        "https://api.openai.com/v1",
+                        ModelCapability.CHAT,
+                        ModelCapability.VISION,
+                        ModelCapability.IMAGE,
+                        ModelCapability.EMBEDDING,
+                        ModelCapability.EVALUATION,
+                        ModelCapability.FALLBACK,
+                        ModelCapability.VISION_FALLBACK));
+        values.put(
+                ModelProvider.GEMINI,
+                descriptor(
+                        ModelProvider.GEMINI,
+                        "https://generativelanguage.googleapis.com/v1beta/openai/",
+                        ModelCapability.CHAT,
+                        ModelCapability.VISION,
+                        ModelCapability.EMBEDDING));
+        values.put(
+                ModelProvider.QWEN,
+                descriptor(
+                        ModelProvider.QWEN,
+                        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        ModelCapability.CHAT,
+                        ModelCapability.VISION,
+                        ModelCapability.IMAGE,
+                        ModelCapability.EMBEDDING,
+                        ModelCapability.RERANK,
+                        ModelCapability.EVALUATION,
+                        ModelCapability.FALLBACK,
+                        ModelCapability.VISION_FALLBACK));
+        values.put(
+                ModelProvider.GLM,
+                descriptor(
+                        ModelProvider.GLM,
+                        "https://open.bigmodel.cn/api/paas/v4",
+                        ModelCapability.CHAT,
+                        ModelCapability.VISION,
+                        ModelCapability.IMAGE,
+                        ModelCapability.EMBEDDING));
+        values.put(
+                ModelProvider.HY,
+                descriptor(
+                        ModelProvider.HY,
+                        "https://api.hunyuan.cloud.tencent.com/v1",
+                        ModelCapability.CHAT,
+                        ModelCapability.VISION,
+                        ModelCapability.IMAGE,
+                        ModelCapability.EMBEDDING));
+
         return new ModelProviderRegistry(values);
     }
 
-    public Set<ModelProvider> providers() { return descriptors.keySet(); }
+    public Set<ModelProvider> providers() {
+        return descriptors.keySet();
+    }
 
-    public ProviderDescriptor resolve(ModelProvider provider, ModelCapability capability, String model) {
-        if (provider == null || capability == null) throw new IllegalArgumentException("Provider 和模型能力不能为空");
+    // 1. 供应商能力解析：按供应商与能力查找已登记协议，拒绝不支持的组合。
+    public ProviderDescriptor resolve(
+            ModelProvider provider, ModelCapability capability, String model) {
+        if (provider == null || capability == null) {
+            throw new IllegalArgumentException("Provider 和模型能力不能为空");
+        }
+
         ProviderDescriptor descriptor = descriptors.get(provider);
+
         if (descriptor == null || !descriptor.capabilities().contains(capability)) {
             throw new IllegalArgumentException("Provider " + provider + " 不支持模型能力 " + capability);
         }
-        if (model == null || model.isBlank()) throw new IllegalArgumentException("模型名称不能为空");
+
+        if (model == null || model.isBlank()) {
+            throw new IllegalArgumentException("模型名称不能为空");
+        }
+
         return descriptor;
     }
 
-    private static ProviderDescriptor descriptor(ModelProvider provider, String url, ModelCapability... capabilities) {
+    private static ProviderDescriptor descriptor(
+            ModelProvider provider, String url, ModelCapability... capabilities) {
         return new ProviderDescriptor(provider, EnumSet.copyOf(Set.of(capabilities)), true, url);
     }
 
-    public record ProviderDescriptor(ModelProvider provider, Set<ModelCapability> capabilities,
-                                     boolean openAiCompatible, String defaultBaseUrl) {
-        public ProviderDescriptor { capabilities = Set.copyOf(capabilities); }
+    /** 供应商能力描述，声明支持的能力、协议兼容性及默认服务地址。 */
+    public record ProviderDescriptor(
+            ModelProvider provider,
+            Set<ModelCapability> capabilities,
+            boolean openAiCompatible,
+            String defaultBaseUrl) {
+        public ProviderDescriptor {
+            capabilities = Set.copyOf(capabilities);
+        }
     }
 }

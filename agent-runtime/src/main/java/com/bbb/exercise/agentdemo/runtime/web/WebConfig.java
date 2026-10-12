@@ -21,21 +21,29 @@ import java.util.List;
  */
 @Configuration
 public class WebConfig {
-    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:${CORS_ALLOWED_ORIGINS:https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}}")
-    private String allowedOrigins = "https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*";
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.cors.allowed-origins:${CORS_ALLOWED_ORIGINS:https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}}")
+    private String allowedOrigins =
+            "https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*";
 
     @Bean
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration c = new CorsConfiguration();
-        c.setAllowedOriginPatterns(java.util.Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim).filter(value -> !value.isBlank()).toList());
-        c.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+
+        c.setAllowedOriginPatterns(
+                java.util.Arrays.stream(allowedOrigins.split(","))
+                        .map(String::trim)
+                        .filter(value -> !value.isBlank())
+                        .toList());
+        c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         c.setAllowedHeaders(List.of("*"));
         c.setExposedHeaders(List.of("Content-Type", "X-Request-Id"));
         c.setAllowCredentials(true);
         c.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource s = new UrlBasedCorsConfigurationSource();
+
         s.registerCorsConfiguration("/api/**", c);
+
         return new CorsWebFilter(s);
     }
 }

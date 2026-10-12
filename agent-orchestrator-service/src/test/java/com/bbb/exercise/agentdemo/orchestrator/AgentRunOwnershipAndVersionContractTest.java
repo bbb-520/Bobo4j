@@ -21,9 +21,7 @@ class AgentRunOwnershipAndVersionContractTest {
     void serviceOnlyAcceptsJdbcTemplateAndKeepsNoInMemoryFallback() {
         var constructors = AgentWorkflowService.class.getDeclaredConstructors();
 
-        assertThat(constructors)
-                .as("只允许一个构造器，且必须注入 JdbcTemplate（禁止无参构造 + 内存回退）")
-                .hasSize(1);
+        assertThat(constructors).as("只允许一个构造器，且必须注入 JdbcTemplate（禁止无参构造 + 内存回退）").hasSize(1);
         assertThat(constructors[0].getParameterTypes()).containsExactly(JdbcTemplate.class);
         assertThat(AgentWorkflowService.class.getDeclaredFields())
                 .as("生产实现不得再持有 ConcurrentHashMap 之类的内存回退")
@@ -32,8 +30,9 @@ class AgentRunOwnershipAndVersionContractTest {
 
     @Test
     void advanceAlwaysRequiresOwnerArgument() {
-        assertThat(Arrays.stream(AgentWorkflowService.class.getDeclaredMethods())
-                .filter(method -> method.getName().equals("advance")))
+        assertThat(
+                        Arrays.stream(AgentWorkflowService.class.getDeclaredMethods())
+                                .filter(method -> method.getName().equals("advance")))
                 .as("必须删除 advance(id, next) 这种 userId=null 的无 owner 重载")
                 .isNotEmpty()
                 .allMatch(method -> method.getParameterCount() == 3);
@@ -45,16 +44,21 @@ class AgentRunOwnershipAndVersionContractTest {
         AgentWorkflowService service = new AgentWorkflowService(fake.jdbc());
 
         var run = service.start("REVISE", "draft", "u1");
+
         assertThat(run.version()).isZero();
 
         var advanced = service.advance(run.id(), RunStatus.REVIEWING, "u1");
+
         assertThat(advanced.status()).isEqualTo(RunStatus.REVIEWING);
         assertThat(advanced.version()).isEqualTo(1L);
 
         assertThat(fake.sqlLog())
                 .as("状态更新必须同时带 user_id 与 version 条件，并自增 version")
-                .anyMatch(sql -> sql.contains("user_id=?") && sql.contains("version=?")
-                        && sql.contains("version=version+1"));
+                .anyMatch(
+                        sql ->
+                                sql.contains("user_id=?")
+                                        && sql.contains("version=?")
+                                        && sql.contains("version=version+1"));
     }
 
     @Test

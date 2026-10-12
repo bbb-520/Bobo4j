@@ -31,36 +31,38 @@ class DeadApiContractSnapshotGateTest {
     @DisplayName("agent-api 的契约清单与基线一一对应（新增契约必须登记）")
     void everyContractIsRegistered() {
         Set<String> registered = new LinkedHashSet<>(Baseline.keys(BASELINE));
-        Set<String> current = new LinkedHashSet<>(ArchitectureState.apiContractExternalReferences().keySet());
+        Set<String> current =
+                new LinkedHashSet<>(ArchitectureState.apiContractExternalReferences().keySet());
 
-        List<String> unregistered = current.stream().filter(fqn -> !registered.contains(fqn)).toList();
-        assertThat(unregistered)
-                .as("新增契约必须登记到 %s，并在基线第二列写清外部引用文件数", BASELINE)
-                .isEmpty();
+        List<String> unregistered =
+                current.stream().filter(fqn -> !registered.contains(fqn)).toList();
+
+        assertThat(unregistered).as("新增契约必须登记到 %s，并在基线第二列写清外部引用文件数", BASELINE).isEmpty();
 
         List<String> stale = registered.stream().filter(fqn -> !current.contains(fqn)).toList();
-        assertThat(stale)
-                .as("基线里登记了 agent-api 已不存在的契约，请同步删除")
-                .isEmpty();
+
+        assertThat(stale).as("基线里登记了 agent-api 已不存在的契约，请同步删除").isEmpty();
     }
 
     @Test
     @DisplayName("没有零外部引用的契约游离在登记表之外")
     void deadContractsMustBeRegisteredAsDead() {
         Map<String, String> status = new java.util.TreeMap<>();
-        Baseline.entries(BASELINE).forEach(entry ->
-                status.put(Baseline.column(entry, 0), Baseline.column(entry, 2)));
+
+        Baseline.entries(BASELINE)
+                .forEach(entry -> status.put(Baseline.column(entry, 0), Baseline.column(entry, 2)));
 
         List<String> unregistered = new ArrayList<>();
-        ArchitectureState.apiContractExternalReferences().forEach((fqn, references) -> {
-            if (references == 0 && !"DEAD".equals(status.get(fqn))) {
-                unregistered.add(fqn + " 外部引用 0 次，但基线状态是 " + status.get(fqn));
-            }
-        });
 
-        assertThat(unregistered)
-                .as("零引用契约要么接上调用方，要么在 %s 里明确标注 DEAD", BASELINE)
-                .isEmpty();
+        ArchitectureState.apiContractExternalReferences()
+                .forEach(
+                        (fqn, references) -> {
+                            if (references == 0 && !"DEAD".equals(status.get(fqn))) {
+                                unregistered.add(fqn + " 外部引用 0 次，但基线状态是 " + status.get(fqn));
+                            }
+                        });
+
+        assertThat(unregistered).as("零引用契约要么接上调用方，要么在 %s 里明确标注 DEAD", BASELINE).isEmpty();
     }
 
     @Test
@@ -68,14 +70,18 @@ class DeadApiContractSnapshotGateTest {
     void reportReferenceCountDrift() {
         Map<String, Integer> current = ArchitectureState.apiContractExternalReferences();
         List<String> drift = new ArrayList<>();
-        Baseline.entries(BASELINE).forEach(entry -> {
-            String fqn = Baseline.column(entry, 0);
-            String recorded = Baseline.column(entry, 1);
-            Integer actual = current.get(fqn);
-            if (actual != null && !String.valueOf(actual).equals(recorded)) {
-                drift.add(fqn + "：基线记录 " + recorded + " 次，当前 " + actual + " 次");
-            }
-        });
+
+        Baseline.entries(BASELINE)
+                .forEach(
+                        entry -> {
+                            String fqn = Baseline.column(entry, 0);
+                            String recorded = Baseline.column(entry, 1);
+                            Integer actual = current.get(fqn);
+
+                            if (actual != null && !String.valueOf(actual).equals(recorded)) {
+                                drift.add(fqn + "：基线记录 " + recorded + " 次，当前 " + actual + " 次");
+                            }
+                        });
 
         if (!drift.isEmpty()) {
             System.out.println("契约引用数漂移（不判失败，但建议同步 " + BASELINE + "）→ " + drift);

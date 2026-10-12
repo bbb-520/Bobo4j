@@ -19,22 +19,32 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/** 验证已删除作品会调度文件清理，且公开查询不暴露提示词或因缺少身份而崩溃。 */
 class BoboWorldCleanupContractTest {
     @Test
     void schedulesCleanupForDeletedWorldObjects() {
-        assertThat(Arrays.stream(BoboWorldService.class.getDeclaredMethods())
-                .filter(method -> method.isAnnotationPresent(Scheduled.class))
-                .map(Method::getName))
+        assertThat(
+                        Arrays.stream(BoboWorldService.class.getDeclaredMethods())
+                                .filter(method -> method.isAnnotationPresent(Scheduled.class))
+                                .map(Method::getName))
                 .contains("cleanupDeletedObjects");
     }
 
     @Test
     void missingIdentityDoesNotCauseNullPointerDuringPublicLookup() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), anyString()))
+
+        when(jdbc.query(
+                        anyString(),
+                        any(org.springframework.jdbc.core.RowMapper.class),
+                        anyString()))
                 .thenReturn(java.util.List.of());
-        BoboWorldService service = new BoboWorldService(jdbc, mock(InternalServiceClient.class),
-                mock(OssStorageService.class), new OssProperties());
+        BoboWorldService service =
+                new BoboWorldService(
+                        jdbc,
+                        mock(InternalServiceClient.class),
+                        mock(OssStorageService.class),
+                        new OssProperties());
 
         assertThatThrownBy(() -> service.get(null, "private-item"))
                 .isInstanceOf(ResponseStatusException.class)
@@ -44,8 +54,9 @@ class BoboWorldCleanupContractTest {
 
     @Test
     void publicItemDetailDoesNotExposeGenerationPrompt() {
-        assertThat(Arrays.stream(BoboWorldService.ItemDetail.class.getRecordComponents())
-                .map(component -> component.getName()))
+        assertThat(
+                        Arrays.stream(BoboWorldService.ItemDetail.class.getRecordComponents())
+                                .map(component -> component.getName()))
                 .doesNotContain("prompt");
     }
 }

@@ -24,46 +24,83 @@ public class ChatIdentityResolver {
     }
 
     public Mono<ChatIdentity> resolve(ServerWebExchange exchange) {
-        var cookie = exchange.getRequest().getCookies().getFirst(properties.getSecurity().getSessionCookieName());
-        return (cookie == null ? Mono.<InternalServiceClient.Identity>empty() : authClient.session(cookie.getValue()))
+        com.bbb.exercise.agentdemo.runtime.security.BrowserIdentityProvider.BrowserUser trusted =
+                exchange.getAttribute(
+                        com.bbb.exercise.agentdemo.runtime.security.BrowserIdentityProvider
+                                .USER_ATTRIBUTE);
+
+        if (trusted != null) {
+            return Mono.just(new ChatIdentity(trusted.tenantId(), trusted.userId(), true));
+        }
+
+        var cookie =
+                exchange.getRequest()
+                        .getCookies()
+                        .getFirst(properties.getSecurity().getSessionCookieName());
+
+        return (cookie == null
+                        ? Mono.<InternalServiceClient.Identity>empty()
+                        : authClient.session(cookie.getValue()))
                 .map(user -> new ChatIdentity(user.tenantId(), user.userId(), true))
-                .switchIfEmpty(exchange.getPrincipal()
-                        .map(Principal::getName)
-                        .filter(name -> name != null && !name.isBlank())
-                        .map(name -> new ChatIdentity(properties.getSecurity().getDefaultTenantId(), name, true))
-                        .switchIfEmpty(Mono.fromSupplier(() -> resolveAnonymous(exchange))));
+                .switchIfEmpty(Mono.fromSupplier(() -> resolveAnonymous(exchange)));
     }
 
     public Mono<ChatIdentity> resolveRequired(ServerWebExchange exchange) {
-        return resolve(exchange).flatMap(identity -> identity.authenticated()
-                ? Mono.just(identity)
-                : Mono.error(new IllegalStateException("请先登录")));
+        return resolve(exchange)
+                .flatMap(
+                        identity ->
+                                identity.authenticated()
+                                        ? Mono.just(identity)
+                                        : Mono.error(
+                                                new org.springframework.web.server
+                                                        .ResponseStatusException(
+                                                        org.springframework.http.HttpStatus
+                                                                .UNAUTHORIZED,
+                                                        "请先登录")));
     }
 
     private ChatIdentity resolveAnonymous(ServerWebExchange exchange) {
         String anonymousCookieName = properties.getSecurity().getAnonymousCookieName();
         var cookie = exchange.getRequest().getCookies().getFirst(anonymousCookieName);
         String userId = cookie == null ? null : cookie.getValue();
+
         if (!isUuid(userId)) {
             userId = UUID.randomUUID().toString();
             boolean secure = isSecureRequest(exchange);
-            exchange.getResponse().addCookie(ResponseCookie.from(anonymousCookieName, userId)
-                    .httpOnly(true).sameSite(secure ? "None" : "Lax").secure(secure)
-                    .path("/").maxAge(Duration.ofDays(30)).build());
+
+            exchange.getResponse()
+                    .addCookie(
+                            ResponseCookie.from(anonymousCookieName, userId)
+                                    .httpOnly(true)
+                                    .sameSite(secure ? "None" : "Lax")
+                                    .secure(secure)
+                                    .path("/")
+                                    .maxAge(Duration.ofDays(30))
+                                    .build());
         }
-        return new ChatIdentity(properties.getSecurity().getDefaultTenantId(), "anonymous:" + userId, false);
+
+        return new ChatIdentity(
+                properties.getSecurity().getDefaultTenantId(), "anonymous:" + userId, false);
     }
 
     private static boolean isSecureRequest(ServerWebExchange exchange) {
         String forwardedProto = exchange.getRequest().getHeaders().getFirst("X-Forwarded-Proto");
         return "https".equalsIgnoreCase(forwardedProto)
                 || "https".equalsIgnoreCase(exchange.getRequest().getURI().getScheme())
-                || Boolean.parseBoolean(System.getenv().getOrDefault("FORCE_COOKIE_SECURE", "false"));
+                || Boolean.parseBoolean(
+                        System.getenv().getOrDefault("FORCE_COOKIE_SECURE", "false"));
     }
 
     private static boolean isUuid(String value) {
-        if (value == null) return false;
-        try { UUID.fromString(value); return true; }
-        catch (IllegalArgumentException ignored) { return false; }
+        if (value == null) {
+            return false;
+        }
+
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 }

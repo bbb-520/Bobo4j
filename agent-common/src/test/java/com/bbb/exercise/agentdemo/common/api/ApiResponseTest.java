@@ -5,6 +5,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证统一接口响应的成功和失败 JSON 序列化结构。 */
 class ApiResponseTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 

@@ -23,11 +23,13 @@ public class UserChatClientFactory {
     private final String visionModel;
     private final ModelProviderRegistry providers;
 
-    public UserChatClientFactory(String systemPrompt, ChatMemory chatMemory,
-                                 @Value("${spring.ai.openai.base-url}") String baseUrl,
-                                 @Value("${spring.ai.openai.chat.model:qwen-turbo}") String model,
-                                 @Value("${spring.ai.openai.chat.vision-model:qwen-vl-plus}") String visionModel,
-                                 ModelProviderRegistry providers) {
+    public UserChatClientFactory(
+            String systemPrompt,
+            ChatMemory chatMemory,
+            @Value("${spring.ai.openai.base-url}") String baseUrl,
+            @Value("${spring.ai.openai.chat.model:qwen-turbo}") String model,
+            @Value("${spring.ai.openai.chat.vision-model:qwen-vl-plus}") String visionModel,
+            ModelProviderRegistry providers) {
         this.systemPrompt = systemPrompt;
         this.chatMemory = chatMemory;
         this.baseUrl = baseUrl;
@@ -37,17 +39,22 @@ public class UserChatClientFactory {
     }
 
     public ChatClient create(UserApiKeys keys, boolean multimodal) {
-        if (!keys.hasQwen()) throw new IllegalStateException("请先在用户页配置阿里云 API Key");
-        OpenAiChatOptions options = OpenAiChatOptions.builder()
-                .apiKey(keys.qwenApiKey())
-                .baseUrl(baseUrl)
-                .model(multimodal ? visionModel : model)
-                .timeout(Duration.ofSeconds(60))
-                .maxRetries(0)
-                .streamUsage(true)
-                .maxCompletionTokens(2048)
-                .build();
+        if (!keys.hasQwen()) {
+            throw new IllegalStateException("请先在用户页配置阿里云 API Key");
+        }
+
+        OpenAiChatOptions options =
+                OpenAiChatOptions.builder()
+                        .apiKey(keys.qwenApiKey())
+                        .baseUrl(baseUrl)
+                        .model(multimodal ? visionModel : model)
+                        .timeout(Duration.ofSeconds(60))
+                        .maxRetries(0)
+                        .streamUsage(true)
+                        .maxCompletionTokens(2048)
+                        .build();
         OpenAiChatModel chatModel = OpenAiChatModel.builder().options(options).build();
+
         return ChatClient.builder(chatModel)
                 .defaultSystem(systemPrompt)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
@@ -59,20 +66,28 @@ public class UserChatClientFactory {
         if (selection == null || selection.apiKey() == null || selection.apiKey().isBlank()) {
             throw new IllegalStateException("请先在模型设置中配置可用的 API Key");
         }
-        ModelProviderRegistry.ProviderDescriptor descriptor = providers.resolve(
-                selection.provider(), selection.capability(), selection.model());
-        String selectedBaseUrl = selection.baseUrl()==null?descriptor.defaultBaseUrl():selection.baseUrl();
-        if (selectedBaseUrl == null || selectedBaseUrl.isBlank()) selectedBaseUrl = baseUrl;
-        OpenAiChatOptions options = OpenAiChatOptions.builder()
-                .apiKey(selection.apiKey())
-                .baseUrl(selectedBaseUrl)
-                .model(selection.model())
-                .timeout(Duration.ofSeconds(60))
-                .maxRetries(0)
-                .streamUsage(true)
-                .maxCompletionTokens(2048)
-                .build();
+
+        ModelProviderRegistry.ProviderDescriptor descriptor =
+                providers.resolve(selection.provider(), selection.capability(), selection.model());
+        String selectedBaseUrl =
+                selection.baseUrl() == null ? descriptor.defaultBaseUrl() : selection.baseUrl();
+
+        if (selectedBaseUrl == null || selectedBaseUrl.isBlank()) {
+            selectedBaseUrl = baseUrl;
+        }
+
+        OpenAiChatOptions options =
+                OpenAiChatOptions.builder()
+                        .apiKey(selection.apiKey())
+                        .baseUrl(selectedBaseUrl)
+                        .model(selection.model())
+                        .timeout(Duration.ofSeconds(60))
+                        .maxRetries(0)
+                        .streamUsage(true)
+                        .maxCompletionTokens(2048)
+                        .build();
         OpenAiChatModel chatModel = OpenAiChatModel.builder().options(options).build();
+
         return ChatClient.builder(chatModel)
                 .defaultSystem(systemPrompt)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())

@@ -26,39 +26,41 @@ class SingleClaimImplementationGateTest {
         assertThat(productionClaims)
                 .as("图片、Agent执行、文档作业各有唯一 owner，不能新增第二套领取实现")
                 .containsExactlyInAnyOrder(
-                    "agent-media-service|src/main/java/com/bbb/exercise/agentdemo/mediaservice/image/ImageJobService.java",
-                    "agent-orchestrator-service|src/main/java/com/bbb/exercise/agentdemo/orchestrator/execution/ExecutionStore.java",
-                    "agent-rag-service|src/main/java/com/bbb/exercise/agentdemo/ragservice/persistence/RagRepository.java");
+                        "agent-media-service|src/main/java/com/bbb/exercise/agentdemo/mediaservice/image/ImageJobService.java",
+                        "agent-orchestrator-service|src/main/java/com/bbb/exercise/agentdemo/orchestrator/execution/ExecutionStore.java",
+                        "agent-rag-service|src/main/java/com/bbb/exercise/agentdemo/ragservice/persistence/RagRepository.java");
     }
 
     @Test
     @DisplayName("claim 实现使用带 workerId 与租约时长的统一签名")
     void claimSignatureCarriesWorkerIdentityAndLease() {
-        String source = Repository.text(Repository.resolve(
-                "agent-media-service/src/main/java/com/bbb/exercise/agentdemo/mediaservice/image/ImageJobService.java"));
+        String source =
+                Repository.text(
+                        Repository.resolve(
+                                "agent-media-service/src/main/java/com/bbb/exercise/agentdemo/mediaservice/image/ImageJobService.java"));
 
         assertThat(source)
                 .as("统一 claim 必须能标识抢占者，否则无法审计是谁抢到的")
-                .containsPattern("claimNext\\s*\\(\\s*String\\s+workerId\\s*,\\s*Duration\\s+leaseDuration\\s*\\)");
+                .containsPattern(
+                        "claimNext\\s*\\(\\s*String\\s+workerId\\s*,\\s*Duration\\s+leaseDuration\\s*\\)");
     }
 
     @Test
     @DisplayName("第二套租约实现不得回到生产源码树")
     void noSecondLeaseImplementation() {
-        List<String> leaseClasses = Repository.PRODUCTION_MODULES.stream()
-                .flatMap(module -> Repository.javaSources(module, false).stream())
-                .map(Repository::relative)
-                .filter(path -> path.endsWith("LeaseService.java"))
-                .toList();
+        List<String> leaseClasses =
+                Repository.PRODUCTION_MODULES.stream()
+                        .flatMap(module -> Repository.javaSources(module, false).stream())
+                        .map(Repository::relative)
+                        .filter(path -> path.endsWith("LeaseService.java"))
+                        .toList();
 
-        assertThat(leaseClasses)
-                .as("非 legacy 生产源码里不允许存在第二套租约/claim 实现")
-                .isEmpty();
+        assertThat(leaseClasses).as("非 legacy 生产源码里不允许存在第二套租约/claim 实现").isEmpty();
 
-        assertThat(Repository.exists(
-                "agent-media-service/src/main/java/com/bbb/exercise/agentdemo/mediaservice/worker/WorkerLeaseService.java"))
+        assertThat(
+                        Repository.exists(
+                                "agent-media-service/src/main/java/com/bbb/exercise/agentdemo/mediaservice/worker/WorkerLeaseService.java"))
                 .as("A0 已移除的 WorkerLeaseService 不得被重新加入")
                 .isFalse();
     }
-
 }

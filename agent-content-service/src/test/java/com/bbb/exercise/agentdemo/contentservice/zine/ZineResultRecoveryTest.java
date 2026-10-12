@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+/** 验证 Zine 结算响应丢失后可复用结果恢复，并拒绝跨用户或租户访问。 */
 class ZineResultRecoveryTest {
     private final ChatIdentity alice = new ChatIdentity("local", "alice", true);
     private InternalServiceClient http;
@@ -29,9 +30,14 @@ class ZineResultRecoveryTest {
 
     @BeforeEach
     void setup() {
-        var datasource = new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID()
-                + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
-        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V3__zine_generation_receipts.sql"))
+        var datasource =
+                new DriverManagerDataSource(
+                        "jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1",
+                        "sa",
+                        "");
+
+        new ResourceDatabasePopulator(
+                        new ClassPathResource("db/migration/V3__zine_generation_receipts.sql"))
                 .execute(datasource);
         jdbc = new JdbcTemplate(datasource);
         http = mock(InternalServiceClient.class);
@@ -45,16 +51,37 @@ class ZineResultRecoveryTest {
     @Test
     void aLostSettlementResponseCanBeRecoveredWithoutGeneratingAgain() {
         var generations = new AtomicInteger();
-        var response = new ZineGenerationService.ZineGenerationResponse("poster", "qwen-image",
-                "https://example.test/result.png", "result", "provider-1", 120L, 80L);
+        var response =
+                new ZineGenerationService.ZineGenerationResponse(
+                        "poster",
+                        "qwen-image",
+                        "https://example.test/result.png",
+                        "result",
+                        "provider-1",
+                        120L,
+                        80L);
+
         when(http.postAuth(anyString(), anyString(), anyString(), any(), eq(Wallet.class)))
                 .thenReturn(Mono.error(new IllegalStateException("lost response")))
                 .thenReturn(Mono.just(new Wallet(0, 0, 1, false, true, false, null)));
 
-        assertThatThrownBy(() -> results.generate(alice, "zine:one", "qwen-image",
-                Mono.fromSupplier(() -> { generations.incrementAndGet(); return response; })).block())
+        assertThatThrownBy(
+                        () ->
+                                results.generate(
+                                                alice,
+                                                "zine:one",
+                                                "qwen-image",
+                                                Mono.fromSupplier(
+                                                        () -> {
+                                                            generations.incrementAndGet();
+                                                            return response;
+                                                        }))
+                                        .block())
                 .isInstanceOf(RuntimeException.class);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM zine_generation_receipt", Integer.class)).isOne();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM zine_generation_receipt", Integer.class))
+                .isOne();
         assertThat(results.get(alice, "zine:one").block().result()).isEqualTo(response);
         assertThat(generations).hasValue(1);
         assertThat(results.list(alice).block()).containsExactly("zine:one");
@@ -62,15 +89,30 @@ class ZineResultRecoveryTest {
 
     @Test
     void aDifferentUserOrTenantCannotReadOrSettleAReceipt() {
-        jdbc.update("INSERT INTO zine_generation_receipt(id,tenant_id,user_id,response_json) VALUES (?,?,?,?)",
-                "owned", "local", "alice", "{}");
-        for (var other : new ChatIdentity[]{new ChatIdentity("local", "bob", true),
-                new ChatIdentity("other-tenant", "alice", true)}) {
+        jdbc.update(
+                "INSERT INTO zine_generation_receipt(id,tenant_id,user_id,response_json) VALUES (?,?,?,?)",
+                "owned",
+                "local",
+                "alice",
+                "{}");
+
+        for (var other :
+                new ChatIdentity[] {
+                    new ChatIdentity("local", "bob", true),
+                    new ChatIdentity("other-tenant", "alice", true)
+                }) {
             assertThatThrownBy(() -> results.get(other, "owned").block())
                     .isInstanceOf(ResponseStatusException.class)
-                    .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode().value()).isEqualTo(404));
+                    .satisfies(
+                            error ->
+                                    assertThat(
+                                                    ((ResponseStatusException) error)
+                                                            .getStatusCode()
+                                                            .value())
+                                            .isEqualTo(404));
             assertThat(results.list(other).block()).isEmpty();
         }
+
         verifyNoInteractions(http);
     }
 }

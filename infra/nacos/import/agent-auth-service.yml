@@ -18,16 +18,34 @@ server:
 
 app:
   platform:
-    api-key: ${PLATFORM_API_KEY:}
-    chat-model: ${PLATFORM_CHAT_MODEL:qwen-turbo}
-    vision-model: ${PLATFORM_VISION_MODEL:qwen-vl-plus}
+    provider: ${PLATFORM_PROVIDER:GPT}
+    api-key: ${OPENAI_API_KEY:${PLATFORM_API_KEY:}}
+    chat-model: ${PLATFORM_CHAT_MODEL:gpt-4.1}
+    vision-model: ${PLATFORM_VISION_MODEL:gpt-4.1}
     image-model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
+    base-url: ${PLATFORM_BASE_URL:https://api.openai.com/v1}
+    qwen-api-key: ${QWEN_API_KEY:${PLATFORM_QWEN_API_KEY:}}
+    qwen-base-url: ${PLATFORM_QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    embedding-model: ${PLATFORM_EMBEDDING_MODEL:text-embedding-v4}
+    rerank-model: ${PLATFORM_RERANK_MODEL:qwen3-rerank}
+    rerank-base-url: ${PLATFORM_RERANK_BASE_URL:}
+    evaluation-model: ${PLATFORM_EVALUATION_MODEL:gpt-4.1}
+    fallback-provider: ${PLATFORM_FALLBACK_PROVIDER:QWEN}
+    fallback-model: ${PLATFORM_FALLBACK_MODEL:qwen-plus}
+    vision-fallback-model: ${PLATFORM_VISION_FALLBACK_MODEL:qwen-vl-plus}
+    fallback-base-url: ${PLATFORM_FALLBACK_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    fallback-api-key: ${PLATFORM_FALLBACK_API_KEY:}
   billing:
     admin-user-ids: ${BILLING_ADMIN_USER_IDS:}
     token-price-per-1k-micros: ${BILLING_TOKEN_PRICE_PER_1K_MICROS:10000}
     text-reserve-micros: ${BILLING_TEXT_RESERVE_MICROS:200000}
     image-price-micros: ${BILLING_IMAGE_PRICE_MICROS:1000000}
     low-balance-micros: ${BILLING_LOW_BALANCE_MICROS:500000}
+    platform-fault:
+      enabled: ${BILLING_PLATFORM_FAULT_ENABLED:true}
+      group-cap-micros: ${BILLING_PLATFORM_FAULT_GROUP_CAP_MICROS:600000}
+      window-cap-micros: ${BILLING_PLATFORM_FAULT_WINDOW_CAP_MICROS:2000000}
+      unresolved-cap: ${BILLING_PLATFORM_FAULT_UNRESOLVED_CAP:10}
   email:
     from: ${SMTP_FROM:}
     otp-secret: ${AUTH_OTP_SECRET:}

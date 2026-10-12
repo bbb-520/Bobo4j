@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证聊天服务本地配置包含 Nacos 凭据及 Redis 连接密码配置。 */
 class ChatLocalRuntimeConfigurationTest {
     @Test
     void suppliesNacosCredentialsAndRedisPasswordForLocalDockerInfrastructure() {
@@ -19,10 +20,13 @@ class ChatLocalRuntimeConfigurationTest {
     }
 
     private static String readApplicationConfiguration() {
-        try (var stream = ChatLocalRuntimeConfigurationTest.class.getResourceAsStream("/application.yml")) {
+        try (var stream =
+                ChatLocalRuntimeConfigurationTest.class.getResourceAsStream("/application.yml")) {
             if (stream == null) {
-                throw new IllegalStateException("application.yml is missing from the test classpath");
+                throw new IllegalStateException(
+                        "application.yml is missing from the test classpath");
             }
+
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);

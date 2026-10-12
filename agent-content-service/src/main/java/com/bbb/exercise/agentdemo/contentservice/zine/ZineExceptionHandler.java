@@ -12,7 +12,7 @@ public class ZineExceptionHandler {
 
     @ExceptionHandler(ZineProviderException.class)
     public ResponseEntity<Map<String, Object>> handleProvider(ZineProviderException exception) {
-        return ResponseEntity.status(502).body(Map.of("code", 502, "message", exception.getMessage()));
+        return ResponseEntity.status(502)
+                .body(Map.of("code", 502, "message", exception.getMessage()));
     }
-
 }

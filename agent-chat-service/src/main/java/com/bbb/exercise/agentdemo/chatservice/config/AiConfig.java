@@ -8,6 +8,7 @@ import org.springframework.core.io.Resource;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+/** 聊天提示词配置，从运行时资源加载系统指令供聊天组件使用。 */
 @Configuration
 public class AiConfig {
     /** Loads the image-focused system prompt. */

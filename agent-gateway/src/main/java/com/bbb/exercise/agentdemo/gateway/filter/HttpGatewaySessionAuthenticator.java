@@ -38,29 +38,53 @@ public final class HttpGatewaySessionAuthenticator implements GatewaySessionAuth
     @Override
     public Mono<AuthenticatedSession> authenticate(ServerWebExchange exchange) {
         var cookie = exchange.getRequest().getCookies().getFirst(cookieName);
-        if (cookie == null || cookie.getValue() == null || cookie.getValue().isBlank()
+
+        if (cookie == null
+                || cookie.getValue() == null
+                || cookie.getValue().isBlank()
                 || cookie.getValue().length() > 512) {
             return Mono.empty();
         }
+
         String path = "/internal/auth/session";
-        String principal = keys.sign(caller, "session", tenant, "agent-auth-service", "GET " + path);
-        return auth.get().uri(path)
+        String principal =
+                keys.sign(caller, "session", tenant, "agent-auth-service", "GET " + path);
+
+        return auth.get()
+                .uri(path)
                 .cookie(cookieName, cookie.getValue())
                 .header("X-Internal-Principal", principal)
-                .exchangeToMono(response -> {
-                    if (response.statusCode().is2xxSuccessful()) {
-                        return response.bodyToMono(AuthSessionResponse.class)
-                                .filter(body -> body.authenticated() && body.userId() != null && !body.userId().isBlank())
-                                .map(body -> new AuthenticatedSession(body.userId(), body.tenantId()));
-                    }
-                    return response.releaseBody().then(Mono.empty());
-                })
+                .exchangeToMono(
+                        response -> {
+                            if (response.statusCode().is2xxSuccessful()) {
+                                return response.bodyToMono(AuthSessionResponse.class)
+                                        .filter(
+                                                body ->
+                                                        body.authenticated()
+                                                                && body.userId() != null
+                                                                && !body.userId().isBlank())
+                                        .map(
+                                                body ->
+                                                        new AuthenticatedSession(
+                                                                body.userId(), body.tenantId()));
+                            }
+
+                            return response.releaseBody().then(Mono.empty());
+                        })
                 .timeout(Duration.ofSeconds(3))
-                .onErrorResume(ResponseStatusException.class, error ->
-                        error.getStatusCode() == HttpStatus.UNAUTHORIZED ? Mono.empty() : Mono.error(error))
-                .onErrorMap(error -> !(error instanceof ResponseStatusException), error ->
-                        new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "认证服务暂不可用", error));
+                .onErrorResume(
+                        ResponseStatusException.class,
+                        error ->
+                                error.getStatusCode() == HttpStatus.UNAUTHORIZED
+                                        ? Mono.empty()
+                                        : Mono.error(error))
+                .onErrorMap(
+                        error -> !(error instanceof ResponseStatusException),
+                        error ->
+                                new ResponseStatusException(
+                                        HttpStatus.SERVICE_UNAVAILABLE, "认证服务暂不可用", error));
     }
 
+    /** 认证服务返回的会话身份，仅包含网关转发需要的用户、租户及认证状态。 */
     private record AuthSessionResponse(String userId, String tenantId, boolean authenticated) {}
 }

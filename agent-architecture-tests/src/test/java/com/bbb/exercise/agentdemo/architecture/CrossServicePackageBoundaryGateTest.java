@@ -37,13 +37,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CrossServicePackageBoundaryGateTest {
 
     /** 领域服务模块 → 该模块自己的领域包（{@code ..} 表示含全部子包）。 */
-    private static final List<Service> SERVICES = List.of(
-            new Service("agent-auth-service", "com.bbb.exercise.agentdemo.authservice"),
-            new Service("agent-chat-service", "com.bbb.exercise.agentdemo.chatservice"),
-            new Service("agent-media-service", "com.bbb.exercise.agentdemo.mediaservice"),
-            new Service("agent-content-service", "com.bbb.exercise.agentdemo.contentservice"),
-            new Service("agent-orchestrator-service", "com.bbb.exercise.agentdemo.orchestrator"),
-            new Service("agent-rag-service", "com.bbb.exercise.agentdemo.ragservice"));
+    private static final List<Service> SERVICES =
+            List.of(
+                    new Service("agent-auth-service", "com.bbb.exercise.agentdemo.authservice"),
+                    new Service("agent-chat-service", "com.bbb.exercise.agentdemo.chatservice"),
+                    new Service("agent-media-service", "com.bbb.exercise.agentdemo.mediaservice"),
+                    new Service(
+                            "agent-content-service", "com.bbb.exercise.agentdemo.contentservice"),
+                    new Service(
+                            "agent-orchestrator-service",
+                            "com.bbb.exercise.agentdemo.orchestrator"),
+                    new Service("agent-rag-service", "com.bbb.exercise.agentdemo.ragservice"));
 
     /** 遗留根包的字节码位置标记；导入时整体排除，避免跨模块同名类冲突。 */
     private static final String LEGACY_ROOT_MARKER = "agentdemo1_0";
@@ -59,11 +63,20 @@ class CrossServicePackageBoundaryGateTest {
                 if (from.equals(to)) {
                     continue;
                 }
-                ArchRule rule = noClasses()
-                        .that().resideInAPackage(from.packagePattern() + "..")
-                        .should().dependOnClassesThat().resideInAPackage(to.packagePattern() + "..")
-                        .because(from.module() + " 只能通过 HTTP / discovery 名调用 " + to.module()
-                                + "，不能编译期引用它的类");
+
+                ArchRule rule =
+                        noClasses()
+                                .that()
+                                .resideInAPackage(from.packagePattern() + "..")
+                                .should()
+                                .dependOnClassesThat()
+                                .resideInAPackage(to.packagePattern() + "..")
+                                .because(
+                                        from.module()
+                                                + " 只能通过 HTTP / discovery 名调用 "
+                                                + to.module()
+                                                + "，不能编译期引用它的类");
+
                 try {
                     rule.check(classes);
                 } catch (AssertionError failure) {
@@ -73,8 +86,9 @@ class CrossServicePackageBoundaryGateTest {
         }
 
         assertThat(violations)
-                .as("领域服务之间出现了编译期依赖。要跨服务复用，先把类型沉到 agent-api（契约 DTO）"
-                        + "或 agent-common（无业务归属的公共能力），不要在服务之间直接 import")
+                .as(
+                        "领域服务之间出现了编译期依赖。要跨服务复用，先把类型沉到 agent-api（契约 DTO）"
+                                + "或 agent-common（无业务归属的公共能力），不要在服务之间直接 import")
                 .isEmpty();
     }
 
@@ -82,19 +96,22 @@ class CrossServicePackageBoundaryGateTest {
     @DisplayName("门禁确实导入了 5 个服务的字节码（避免规则空跑）")
     void serviceClassesAreImported() {
         JavaClasses classes = allServiceClasses();
+
         for (Service service : SERVICES) {
             long imported = 0;
+
             for (JavaClass javaClass : classes) {
                 if (javaClass.getPackageName().equals(service.packagePattern())
                         || javaClass.getPackageName().startsWith(service.packagePattern() + ".")) {
                     imported++;
                 }
             }
+
             assertThat(imported)
-                    .as("服务 %s 的领域包 %s 一个类都没导入到，规则等于空跑",
-                            service.module(), service.packagePattern())
+                    .as("服务 %s 的领域包 %s 一个类都没导入到，规则等于空跑", service.module(), service.packagePattern())
                     .isGreaterThan(0);
         }
+
         assertThat(classes.size())
                 .as("导入到的类总数明显偏少，说明 module 的 target/classes 没被正确识别")
                 .isGreaterThan(SERVICES.size());
@@ -107,14 +124,15 @@ class CrossServicePackageBoundaryGateTest {
      * 而且五个模块各自一份遗留根包副本，结论会随构建阶段漂移。
      */
     private static JavaClasses allServiceClasses() {
-        Path[] paths = SERVICES.stream()
-                .map(service -> ModuleClasses.classesOf(service.module()))
-                .toArray(Path[]::new);
+        Path[] paths =
+                SERVICES.stream()
+                        .map(service -> ModuleClasses.classesOf(service.module()))
+                        .toArray(Path[]::new);
         return new ClassFileImporter()
                 .withImportOption(location -> !location.contains(LEGACY_ROOT_MARKER))
                 .importPaths(paths);
     }
 
-    private record Service(String module, String packagePattern) {
-    }
+    /** 架构门禁使用的服务描述，将模块目录与应检查的包范围关联。 */
+    private record Service(String module, String packagePattern) {}
 }

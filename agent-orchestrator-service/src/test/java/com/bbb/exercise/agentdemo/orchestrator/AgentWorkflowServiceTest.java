@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/** 验证工作流按合法顺序推进，并拒绝无身份、跨用户访问及非法状态变更。 */
 class AgentWorkflowServiceTest {
 
     private static AgentWorkflowService service() {
@@ -17,6 +18,7 @@ class AgentWorkflowServiceTest {
     void reviseWorkflowAdvancesInOrder() {
         AgentWorkflowService service = service();
         var run = service.start("REVISE", "draft", "u1");
+
         run = service.advance(run.id(), RunStatus.REVIEWING, "u1");
         run = service.advance(run.id(), RunStatus.REVISING, "u1");
         run = service.advance(run.id(), RunStatus.VALIDATING, "u1");
@@ -28,6 +30,7 @@ class AgentWorkflowServiceTest {
     void rejectsIllegalTransition() {
         AgentWorkflowService service = service();
         var run = service.start("REVISE", "draft", "u1");
+
         assertThatThrownBy(() -> service.advance(run.id(), RunStatus.APPROVED, "u1"))
                 .isInstanceOf(IllegalStateException.class);
     }
@@ -35,6 +38,7 @@ class AgentWorkflowServiceTest {
     @Test
     void rejectsAnonymousOrMissingOwner() {
         AgentWorkflowService service = service();
+
         assertThatThrownBy(() -> service.start("REVISE", "draft", "anonymous"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("用户身份");

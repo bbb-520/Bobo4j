@@ -7,13 +7,16 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/** 验证图片任务执行前重新校验供应商选择，并拒绝配置变更或移除后的任务。 */
 class ImageJobWorkerProviderContractTest {
     @Test
     void rejectsAQueuedJobWhenTheSelectedProviderChanged() {
-        var selected = new AuthModelClient.SelectedModel(ModelProvider.GPT, ModelCapability.IMAGE,
-                "model", "secret");
+        var selected =
+                new AuthModelClient.SelectedModel(
+                        ModelProvider.GPT, ModelCapability.IMAGE, "model", "secret");
 
-        assertThatThrownBy(() -> ImageJobWorker.validateSelectedProvider(ModelProvider.QWEN, selected))
+        assertThatThrownBy(
+                        () -> ImageJobWorker.validateSelectedProvider(ModelProvider.QWEN, selected))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("提供商已变更");
     }

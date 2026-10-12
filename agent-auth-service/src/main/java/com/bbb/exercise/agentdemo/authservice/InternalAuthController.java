@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import java.time.Instant;
 import org.springframework.web.server.ServerWebExchange;
 
+/** 服务间认证接口，校验调用签名后提供用户、会话及模型凭据查询。 */
 @RestController
 @RequestMapping("/internal/auth")
 public class InternalAuthController {
@@ -26,17 +27,27 @@ public class InternalAuthController {
     private final Map<String, byte[]> principalSecrets;
 
     @Autowired
-    public InternalAuthController(AuthService auth, UserApiKeyService userKeys, ModelProfileService modelProfiles,
-                                  @Value("${app.security.internal-principal-secrets:}") String encodedSecret) {
+    public InternalAuthController(
+            AuthService auth,
+            UserApiKeyService userKeys,
+            ModelProfileService modelProfiles,
+            @Value("${app.security.internal-principal-secrets:}") String encodedSecret) {
         this.auth = auth;
         this.userKeys = userKeys;
         this.modelProfiles = modelProfiles;
+
         try {
-            this.principalSecrets = java.util.Arrays.stream((encodedSecret == null ? "" : encodedSecret).split(","))
-                    .filter(item -> item.contains("="))
-                    .map(item -> item.split("=", 2))
-                    .collect(Collectors.toUnmodifiableMap(item -> item[0].trim(), item -> Base64.getDecoder().decode(item[1].trim())));
-        } catch (IllegalArgumentException e) { throw new IllegalStateException("内部 principal 密钥必须是 keyId=Base64[,keyId=Base64]", e); }
+            this.principalSecrets =
+                    java.util.Arrays.stream((encodedSecret == null ? "" : encodedSecret).split(","))
+                            .filter(item -> item.contains("="))
+                            .map(item -> item.split("=", 2))
+                            .collect(
+                                    Collectors.toUnmodifiableMap(
+                                            item -> item[0].trim(),
+                                            item -> Base64.getDecoder().decode(item[1].trim())));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("内部 principal 密钥必须是 keyId=Base64[,keyId=Base64]", e);
+        }
     }
 
     /** Test/embedding constructor for the identity-only boundary. */
@@ -44,57 +55,116 @@ public class InternalAuthController {
         this(auth, null, null, encodedSecret);
     }
 
+    // 1. 内部用户查询：验证服务签名和请求主体后返回公开身份。
     @GetMapping("/users/{userId}")
-    public UserIdentityDto getUser(@PathVariable String userId,
-                                   @RequestHeader(value = "X-Internal-Principal") String token) {
+    public UserIdentityDto getUser(
+            @PathVariable String userId,
+            @RequestHeader(value = "X-Internal-Principal") String token) {
         var principal = verify(token, "GET /internal/auth/users/" + userId);
+
         assertSubject(principal, userId);
         String tenantId = principal.tenant();
         var identity = auth.resolvePublicUser(userId, tenantId);
-        if (identity == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
-        return new UserIdentityDto(identity.userId(), identity.tenantId(), true);
+
+        if (identity == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
+        }
+
+        return new UserIdentityDto(
+                identity.userId(),
+                identity.tenantId(),
+                true,
+                identity.username(),
+                identity.roles(),
+                identity.permissions());
     }
 
+    // 2. 内部会话查询：供网关及业务服务确认浏览器身份。
     @GetMapping("/session")
-    public UserIdentityDto session(ServerWebExchange exchange,
-                                   @RequestHeader(value = "X-Internal-Principal") String token) {
-        verify(token, "GET /internal/auth/session");
+    public UserIdentityDto session(
+            ServerWebExchange exchange,
+            @RequestHeader(value = "X-Internal-Principal") String token) {
+        var principal = verify(token, "GET /internal/auth/session");
+
+        if (!"session".equals(principal.subject())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "会话操作主体不匹配");
+        }
+
         var cookie = exchange.getRequest().getCookies().getFirst(auth.sessionCookieName());
-        if (cookie == null || cookie.getValue().isBlank())
+
+        if (cookie == null || cookie.getValue().isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "会话无效");
+        }
+
         var identity = auth.resolveSessionToken(cookie.getValue());
-        if (identity == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "会话无效");
-        return new UserIdentityDto(identity.userId(), identity.tenantId(), true);
+
+        if (identity == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "会话无效");
+        }
+
+        if (!identity.tenantId().equals(principal.tenant())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "会话租户不匹配");
+        }
+
+        return new UserIdentityDto(
+                identity.userId(),
+                identity.tenantId(),
+                true,
+                identity.username(),
+                identity.roles(),
+                identity.permissions());
     }
 
+    // 3. 内部凭据查询：凭据仅经签名内部协议交给受信调用者。
     @GetMapping("/users/{userId}/api-key")
-    public UserApiKeyService.UserApiKeys apiKey(@PathVariable String userId,
-                                                @RequestHeader("X-Internal-Principal") String token) {
+    public UserApiKeyService.UserApiKeys apiKey(
+            @PathVariable String userId, @RequestHeader("X-Internal-Principal") String token) {
         var principal = verify(token, "GET /internal/auth/users/" + userId + "/api-key");
+
         assertSubject(principal, userId);
         var identity = auth.identityForPublicUser(userId, principal.tenant());
-        if (identity == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
+
+        if (identity == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
+        }
+
         return userKeys.get(identity);
     }
 
+    // 3.1. 内部模型查询：按能力解析配置，并核对签名主体与目标用户。
     @GetMapping("/users/{userId}/model-profiles/{capability}")
-    public ModelProfileService.SelectedModel model(@PathVariable String userId, @PathVariable String capability,
-                                                   @RequestHeader("X-Internal-Principal") String token) {
-        var principal = verify(token, "GET /internal/auth/users/" + userId + "/model-profiles/" + capability);
+    public ModelProfileService.SelectedModel model(
+            @PathVariable String userId,
+            @PathVariable String capability,
+            @RequestHeader("X-Internal-Principal") String token) {
+        var principal =
+                verify(
+                        token,
+                        "GET /internal/auth/users/" + userId + "/model-profiles/" + capability);
+
         assertSubject(principal, userId);
         var identity = auth.identityForPublicUser(userId, principal.tenant());
-        if (identity == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
+
+        if (identity == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
+        }
+
         return modelProfiles.resolve(identity, ModelCapability.parse(capability));
     }
 
+    // 4. 调用边界：验证签名、目标服务及请求作用域，阻止重放到其他接口。
     private SignedPrincipal.Scoped verify(String token, String operation) {
-        try { return SignedPrincipal.verifyScoped(token, principalSecrets, Instant.now(),
-                "agent-auth-service", operation); }
-        catch (IllegalArgumentException e) { throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "内部身份签名无效"); }
+        try {
+            return SignedPrincipal.verifyScoped(
+                    token, principalSecrets, Instant.now(), "agent-auth-service", operation);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "内部身份签名无效");
+        }
     }
 
     private static void assertSubject(SignedPrincipal.Scoped principal, String userId) {
-        if (!userId.equals(principal.subject()))
+        if (!userId.equals(principal.subject())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "内部 principal subject 不匹配");
+        }
     }
 }

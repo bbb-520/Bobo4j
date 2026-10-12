@@ -21,9 +21,11 @@ class BaselineDumpTest {
 
     @Test
     void dumpRootPackageCoupling() {
-        dump("root-package-scans.txt（扫描声明：模块|路径|注解(限定/无参)）",
+        dump(
+                "root-package-scans.txt（扫描声明：模块|路径|注解(限定/无参)）",
                 ArchitectureState.rootPackageScanDeclarations());
-        dump("root-package-imports.txt（新包 import 根包：模块|模块内路径）",
+        dump(
+                "root-package-imports.txt（新包 import 根包：模块|模块内路径）",
                 ArchitectureState.rootPackageImports());
     }
 
@@ -31,32 +33,46 @@ class BaselineDumpTest {
     void dumpDuplicates() {
         List<String> duplicates = ArchitectureState.duplicateMainSources();
         Map<String, Set<String>> owners = ArchitectureState.duplicateMainSourceOwners();
-        System.out.println("=====BEGIN duplicate-classes.txt（跨模块重复主源码，共 " + duplicates.size() + "）=====");
-        duplicates.forEach(fqn -> System.out.println(fqn + "|" + String.join(",", owners.getOrDefault(fqn, Set.of()))));
+
+        System.out.println(
+                "=====BEGIN duplicate-classes.txt（跨模块重复主源码，共 " + duplicates.size() + "）=====");
+        duplicates.forEach(
+                fqn ->
+                        System.out.println(
+                                fqn + "|" + String.join(",", owners.getOrDefault(fqn, Set.of()))));
         System.out.println("=====END duplicate-classes.txt=====");
     }
 
     @Test
     void dumpApiContracts() {
         System.out.println("=====BEGIN api-contracts.txt（FQN|外部引用文件数|状态）=====");
-        ArchitectureState.apiContractExternalReferences().forEach((fqn, references) -> System.out.println(
-                fqn + "|" + references + "|" + (references == 0 ? "DEAD" : "REFERENCED")));
+        ArchitectureState.apiContractExternalReferences()
+                .forEach(
+                        (fqn, references) ->
+                                System.out.println(
+                                        fqn
+                                                + "|"
+                                                + references
+                                                + "|"
+                                                + (references == 0 ? "DEAD" : "REFERENCED")));
         System.out.println("=====END api-contracts.txt=====");
     }
 
     @Test
     void dumpMigrationsAndClaims() {
-        dump("non-owner-migrations.txt（无执行入口的 SQL，已登记禁止静默删除）",
+        dump(
+                "non-owner-migrations.txt（无执行入口的 SQL，已登记禁止静默删除）",
                 ArchitectureState.nonOwnerMigrations());
-        dump("claim 实现参考清单（只做提示，不落基线文件）",
-                ArchitectureState.claimImplementationFiles());
+        dump("claim 实现参考清单（只做提示，不落基线文件）", ArchitectureState.claimImplementationFiles());
     }
 
     @Test
     void dumpModuleOwnership() {
-        dump("common-module-boundary.txt（agent-common 归属越界：模块内路径|类别）",
+        dump(
+                "common-module-boundary.txt（agent-common 归属越界：模块内路径|类别）",
                 ArchitectureState.commonModuleBoundaryViolations());
-        dump("Controller↔持久化 违规（立即变红，无基线；为空才是正常）",
+        dump(
+                "Controller↔持久化 违规（立即变红，无基线；为空才是正常）",
                 ArchitectureState.controllersDependingOnPersistence());
     }
 

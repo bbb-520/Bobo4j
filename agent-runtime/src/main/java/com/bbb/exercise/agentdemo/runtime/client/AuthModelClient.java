@@ -1,4 +1,5 @@
 package com.bbb.exercise.agentdemo.runtime.client;
+
 import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
 import com.bbb.exercise.agentdemo.api.model.ModelCapability;
 import com.bbb.exercise.agentdemo.api.model.ModelProvider;
@@ -16,18 +17,46 @@ public class AuthModelClient {
     }
 
     public SelectedModel resolve(ChatIdentity identity, ModelCapability capability) {
-        var remote = authClient.model(identity.userId(), identity.tenantId(), capability.name())
-                .block(Duration.ofSeconds(5));
-        if (remote == null) return null;
-        return new SelectedModel(ModelProvider.parse(remote.provider()), capability, remote.model(), remote.apiKey(),remote.baseUrl(),remote.credentialId());
+        var remote =
+                authClient
+                        .model(identity.userId(), identity.tenantId(), capability.name())
+                        .block(Duration.ofSeconds(5));
+
+        if (remote == null) {
+            return null;
+        }
+
+        return new SelectedModel(
+                ModelProvider.parse(remote.provider()),
+                capability,
+                remote.model(),
+                remote.apiKey(),
+                remote.baseUrl(),
+                remote.credentialId());
     }
 
-    public record SelectedModel(ModelProvider provider, ModelCapability capability, String model, String apiKey,String baseUrl,String credentialId) {
-        public SelectedModel(ModelProvider provider,ModelCapability capability,String model,String apiKey) {this(provider,capability,model,apiKey,null,"platform");}
+    /** 认证服务选定的模型路由，包含实际供应商、端点及内部调用凭据。 */
+    public record SelectedModel(
+            ModelProvider provider,
+            ModelCapability capability,
+            String model,
+            String apiKey,
+            String baseUrl,
+            String credentialId) {
+        public SelectedModel(
+                ModelProvider provider, ModelCapability capability, String model, String apiKey) {
+            this(provider, capability, model, apiKey, null, "platform");
+        }
+
         @Override
         public String toString() {
-            return "SelectedModel[provider=" + provider + ", capability=" + capability
-                    + ", model=" + model + ", apiKey=[REDACTED]]";
+            return "SelectedModel[provider="
+                    + provider
+                    + ", capability="
+                    + capability
+                    + ", model="
+                    + model
+                    + ", apiKey=[REDACTED]]";
         }
     }
 }

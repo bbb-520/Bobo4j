@@ -24,34 +24,63 @@ public class ImageJobController {
     private final ChatIdentityResolver identityResolver;
     private final ImageJobService jobs;
 
+    // 1. 任务查询：任务状态和下载入口均使用当前认证身份核对归属。
     @GetMapping("/{jobId}")
-    public Mono<ResponseEntity<ImageJobService.JobView>> get(@PathVariable String jobId, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(jobs.get(identity, jobId))))
+    public Mono<ResponseEntity<ImageJobService.JobView>> get(
+            @PathVariable String jobId, ServerWebExchange exchange) {
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () -> ResponseEntity.ok(jobs.get(identity, jobId))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     @GetMapping("/{jobId}/download")
-    public Mono<ResponseEntity<Void>> download(@PathVariable String jobId, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.status(HttpStatus.FOUND)
-                        .location(URI.create(jobs.downloadUrl(identity, jobId))).<Void>build()))
+    public Mono<ResponseEntity<Void>> download(
+            @PathVariable String jobId, ServerWebExchange exchange) {
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.status(HttpStatus.FOUND)
+                                                        .location(
+                                                                URI.create(
+                                                                        jobs.downloadUrl(
+                                                                                identity, jobId)))
+                                                        .<Void>build()))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // 2. 会话图片列表：查询当前用户在指定会话内创建的图片任务。
     @GetMapping
     public Mono<ResponseEntity<List<ImageJobService.JobView>>> conversation(
             @RequestParam String conversationId, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(jobs.conversation(identity, conversationId))))
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.ok(
+                                                        jobs.conversation(
+                                                                identity, conversationId))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // 3. 结果归档入口：分页返回当前用户的成功图片。
     @GetMapping("/archive")
     public Mono<ResponseEntity<List<ImageJobService.JobView>>> archive(
             @RequestParam(defaultValue = "24") int limit, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(jobs.archive(identity, limit))))
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () -> ResponseEntity.ok(jobs.archive(identity, limit))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 }

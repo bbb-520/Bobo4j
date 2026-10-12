@@ -38,23 +38,27 @@ class DuplicateClassSnapshotGateTest {
         Map<String, Set<String>> current = ArchitectureState.duplicateMainSourceOwners();
 
         List<String> violations = new ArrayList<>();
-        current.forEach((fqn, owners) -> {
-            Set<String> allowed = registered.get(fqn);
-            if (allowed == null) {
-                violations.add("全新重复类 " + fqn + "：" + owners);
-                return;
-            }
-            Set<String> extra = new LinkedHashSet<>(owners);
-            extra.removeAll(allowed);
-            if (!extra.isEmpty()) {
-                violations.add(fqn + " 又多了一份副本，新增持有者 " + extra
-                        + "（基线允许的持有者是 " + allowed + "）");
-            }
-        });
 
-        assertThat(violations)
-                .as("重复类只能消除、不能增加；确需暂时保留时，必须在同一提交里说明归属方案并更新 %s", BASELINE)
-                .isEmpty();
+        current.forEach(
+                (fqn, owners) -> {
+                    Set<String> allowed = registered.get(fqn);
+
+                    if (allowed == null) {
+                        violations.add("全新重复类 " + fqn + "：" + owners);
+                        return;
+                    }
+
+                    Set<String> extra = new LinkedHashSet<>(owners);
+
+                    extra.removeAll(allowed);
+
+                    if (!extra.isEmpty()) {
+                        violations.add(
+                                fqn + " 又多了一份副本，新增持有者 " + extra + "（基线允许的持有者是 " + allowed + "）");
+                    }
+                });
+
+        assertThat(violations).as("重复类只能消除、不能增加；确需暂时保留时，必须在同一提交里说明归属方案并更新 %s", BASELINE).isEmpty();
     }
 
     @Test
@@ -63,40 +67,57 @@ class DuplicateClassSnapshotGateTest {
         Map<String, Set<String>> registered = baselineOwners();
         Map<String, Set<String>> current = ArchitectureState.duplicateMainSourceOwners();
 
-        List<String> fullyResolved = registered.keySet().stream().filter(fqn -> !current.containsKey(fqn)).toList();
+        List<String> fullyResolved =
+                registered.keySet().stream().filter(fqn -> !current.containsKey(fqn)).toList();
         List<String> shrunk = new ArrayList<>();
-        current.forEach((fqn, owners) -> {
-            Set<String> allowed = registered.get(fqn);
-            if (allowed != null && !allowed.equals(owners)) {
-                shrunk.add(fqn);
-            }
-        });
+
+        current.forEach(
+                (fqn, owners) -> {
+                    Set<String> allowed = registered.get(fqn);
+
+                    if (allowed != null && !allowed.equals(owners)) {
+                        shrunk.add(fqn);
+                    }
+                });
 
         if (!fullyResolved.isEmpty() || !shrunk.isEmpty()) {
-            System.out.println("基线可收缩：完全消除 " + fullyResolved.size() + " 个、持有者减少 " + shrunk.size()
-                    + " 个 → " + fullyResolved + shrunk);
+            System.out.println(
+                    "基线可收缩：完全消除 "
+                            + fullyResolved.size()
+                            + " 个、持有者减少 "
+                            + shrunk.size()
+                            + " 个 → "
+                            + fullyResolved
+                            + shrunk);
         }
     }
 
     @Test
     @DisplayName("基线本身是可解析的（路径 + 持有模块集合）")
     void baselineIsWellFormed() {
-        List<String> malformed = Baseline.entries(BASELINE).stream()
-                .filter(entry -> !Baseline.column(entry, 0).startsWith("com/bbb/exercise/")
-                        || !Baseline.column(entry, 0).endsWith(".java")
-                        || Baseline.column(entry, 1).isBlank())
-                .toList();
+        List<String> malformed =
+                Baseline.entries(BASELINE).stream()
+                        .filter(
+                                entry ->
+                                        !Baseline.column(entry, 0).startsWith("com/bbb/exercise/")
+                                                || !Baseline.column(entry, 0).endsWith(".java")
+                                                || Baseline.column(entry, 1).isBlank())
+                        .toList();
 
-        assertThat(malformed)
-                .as("基线格式应为 <src/main/java 下相对路径>|<持有模块,逗号分隔>")
-                .isEmpty();
+        assertThat(malformed).as("基线格式应为 <src/main/java 下相对路径>|<持有模块,逗号分隔>").isEmpty();
     }
 
     private static Map<String, Set<String>> baselineOwners() {
         Map<String, Set<String>> owners = new LinkedHashMap<>();
-        Baseline.entries(BASELINE).forEach(entry -> owners.put(
-                Baseline.column(entry, 0),
-                new LinkedHashSet<>(List.of(Baseline.column(entry, 1).split(",")))));
+
+        Baseline.entries(BASELINE)
+                .forEach(
+                        entry ->
+                                owners.put(
+                                        Baseline.column(entry, 0),
+                                        new LinkedHashSet<>(
+                                                List.of(Baseline.column(entry, 1).split(",")))));
+
         return owners;
     }
 }

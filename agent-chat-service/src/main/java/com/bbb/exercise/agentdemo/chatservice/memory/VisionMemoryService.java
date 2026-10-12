@@ -19,51 +19,116 @@ public class VisionMemoryService {
     private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}]{2,}");
     private final JdbcTemplate jdbc;
 
+    // 1. 视觉记忆写入：将当前用户的图片场景摘要保存为后续对话上下文。
     public void rememberScene(ChatIdentity identity, SceneCard card, String instruction) {
-        if (card == null || card.summary() == null || card.summary().isBlank()) return;
+        if (card == null || card.summary() == null || card.summary().isBlank()) {
+            return;
+        }
+
         String userId = requireUser(identity);
-        String content = card.summary() + " " + String.join(" ", card.subjects()) + " "
-                + card.palette() + " " + card.composition() + " " + card.mood()
-                + (instruction == null ? "" : " 用户指令：" + instruction);
-        jdbc.update("INSERT INTO vision_memory(user_id,tenant_id,kind,content,structured_json,source,created_at,updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?)", userId, identity.tenantId(), "VISUAL_PREFERENCE", content,
-                structured(card), "SCENE_CARD", LocalDateTime.now(), LocalDateTime.now());
+        String content =
+                card.summary()
+                        + " "
+                        + String.join(" ", card.subjects())
+                        + " "
+                        + card.palette()
+                        + " "
+                        + card.composition()
+                        + " "
+                        + card.mood()
+                        + (instruction == null ? "" : " 用户指令：" + instruction);
+
+        jdbc.update(
+                "INSERT INTO vision_memory(user_id,tenant_id,kind,content,structured_json,source,created_at,updated_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?)",
+                userId,
+                identity.tenantId(),
+                "VISUAL_PREFERENCE",
+                content,
+                structured(card),
+                "SCENE_CARD",
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
+    // 2. 视觉记忆召回：在当前身份范围内选择与本轮问题相关的历史场景。
     public String augment(ChatIdentity identity, String prompt, int limit) {
-        if (prompt == null || prompt.isBlank()) return prompt;
+        if (prompt == null || prompt.isBlank()) {
+            return prompt;
+        }
+
         String userId = requireUser(identity);
-        List<Memory> memories = jdbc.query("SELECT id,kind,content,UNIX_TIMESTAMP(updated_at) FROM vision_memory "
-                        + "WHERE user_id=? AND tenant_id=? AND active=1 ORDER BY updated_at DESC LIMIT 100",
-                (rs, rowNum) -> new Memory(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getLong(4)),
-                userId, identity.tenantId());
-        String context = memories.stream().sorted(Comparator.comparingDouble((Memory m) -> score(prompt, m)).reversed())
-                .limit(Math.max(1, Math.min(limit, 8))).map(Memory::content).reduce((a, b) -> a + "；" + b).orElse("");
-        if (context.isBlank()) return prompt;
+        List<Memory> memories =
+                jdbc.query(
+                        "SELECT id,kind,content,UNIX_TIMESTAMP(updated_at) FROM vision_memory "
+                                + "WHERE user_id=? AND tenant_id=? AND active=1 ORDER BY updated_at DESC LIMIT 100",
+                        (rs, rowNum) ->
+                                new Memory(
+                                        rs.getLong(1),
+                                        rs.getString(2),
+                                        rs.getString(3),
+                                        rs.getLong(4)),
+                        userId,
+                        identity.tenantId());
+        String context =
+                memories.stream()
+                        .sorted(
+                                Comparator.comparingDouble((Memory m) -> score(prompt, m))
+                                        .reversed())
+                        .limit(Math.max(1, Math.min(limit, 8)))
+                        .map(Memory::content)
+                        .reduce((a, b) -> a + "；" + b)
+                        .orElse("");
+
+        if (context.isBlank()) {
+            return prompt;
+        }
+
         return prompt + "\n\n【长期视觉偏好参考，仅在相关时采用】\n" + context;
     }
 
+    // 2.1. 相关性评分：按问题与候选场景的匹配程度决定优先级。
     public static double score(String query, Memory memory) {
         String q = query.toLowerCase(Locale.ROOT);
         String c = memory.content().toLowerCase(Locale.ROOT);
         var matcher = TOKEN.matcher(q);
         int overlap = 0;
-        while (matcher.find()) if (c.contains(matcher.group())) overlap++;
+
+        while (matcher.find()) {
+            if (c.contains(matcher.group())) {
+                overlap++;
+            }
+        }
+
         return overlap * 10.0 + Math.min(5.0, memory.updatedAtEpoch() / 1_000_000_000d / 365d);
     }
 
     private static String structured(SceneCard card) {
-        return "{\"palette\":\"" + escape(card.palette()) + "\",\"composition\":\""
-                + escape(card.composition()) + "\",\"mood\":\"" + escape(card.mood()) + "\"}";
+        return "{\"palette\":\""
+                + escape(card.palette())
+                + "\",\"composition\":\""
+                + escape(card.composition())
+                + "\",\"mood\":\""
+                + escape(card.mood())
+                + "\"}";
     }
 
-    private static String escape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
+    private static String escape(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
 
+    // 3. 身份边界：未认证用户不能读写长期视觉记忆。
     private static String requireUser(ChatIdentity identity) {
-        if (identity == null || !identity.authenticated() || identity.userId() == null || identity.userId().isBlank())
+        if (identity == null
+                || !identity.authenticated()
+                || identity.userId() == null
+                || identity.userId().isBlank()) {
             throw new IllegalStateException("请先登录");
+        }
+
         return identity.userId();
     }
 
+    /** 可供后续对话复用的视觉记忆，记录类型、内容及更新时间。 */
     public record Memory(Long id, String kind, String content, long updatedAtEpoch) {}
 }

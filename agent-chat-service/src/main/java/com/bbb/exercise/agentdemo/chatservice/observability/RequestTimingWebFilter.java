@@ -25,54 +25,93 @@ import java.util.concurrent.atomic.AtomicReference;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class RequestTimingWebFilter implements WebFilter {
 
-    public static final String REQUEST_ID_ATTRIBUTE = RequestTimingWebFilter.class.getName() + ".requestId";
+    public static final String REQUEST_ID_ATTRIBUTE =
+            RequestTimingWebFilter.class.getName() + ".requestId";
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
     private static final int MAX_REQUEST_ID_LENGTH = 64;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String requestId = resolveRequestId(exchange.getRequest().getHeaders().getFirst(REQUEST_ID_HEADER));
+        String requestId =
+                resolveRequestId(exchange.getRequest().getHeaders().getFirst(REQUEST_ID_HEADER));
         Instant receivedAt = Instant.now();
         long startedNanos = System.nanoTime();
         AtomicReference<Throwable> failure = new AtomicReference<>();
 
         exchange.getAttributes().put(REQUEST_ID_ATTRIBUTE, requestId);
         exchange.getResponse().getHeaders().set(REQUEST_ID_HEADER, requestId);
-        log.info("[http] request_received requestId={} method={} path={} receivedAt={}",
-                requestId, exchange.getRequest().getMethod(), exchange.getRequest().getPath().value(), receivedAt);
+        log.info(
+                "[http] request_received requestId={} method={} path={} receivedAt={}",
+                requestId,
+                exchange.getRequest().getMethod(),
+                exchange.getRequest().getPath().value(),
+                receivedAt);
 
         return chain.filter(exchange)
                 .doOnError(failure::set)
-                .doFinally(signal -> logCompletion(exchange, requestId, receivedAt, startedNanos,
-                        signal.toString(), failure.get()));
+                .doFinally(
+                        signal ->
+                                logCompletion(
+                                        exchange,
+                                        requestId,
+                                        receivedAt,
+                                        startedNanos,
+                                        signal.toString(),
+                                        failure.get()));
     }
 
-    private static void logCompletion(ServerWebExchange exchange, String requestId, Instant receivedAt,
-                                      long startedNanos, String signal, Throwable failure) {
+    private static void logCompletion(
+            ServerWebExchange exchange,
+            String requestId,
+            Instant receivedAt,
+            long startedNanos,
+            String signal,
+            Throwable failure) {
         Instant completedAt = Instant.now();
         long durationMs = Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000);
         HttpStatusCode status = exchange.getResponse().getStatusCode();
+
         if (failure == null) {
-            log.info("[http] request_completed requestId={} status={} receivedAt={} completedAt={} durationMs={} signal={}",
-                    requestId, status == null ? 200 : status.value(), receivedAt, completedAt, durationMs, signal);
+            log.info(
+                    "[http] request_completed requestId={} status={} receivedAt={} completedAt={} durationMs={} signal={}",
+                    requestId,
+                    status == null ? 200 : status.value(),
+                    receivedAt,
+                    completedAt,
+                    durationMs,
+                    signal);
             return;
         }
-        log.warn("[http] request_failed requestId={} status={} receivedAt={} completedAt={} durationMs={} signal={} errorType={} message={}",
-                requestId, status == null ? 500 : status.value(), receivedAt, completedAt, durationMs, signal,
-                failure.getClass().getSimpleName(), safeMessage(failure));
+
+        log.warn(
+                "[http] request_failed requestId={} status={} receivedAt={} completedAt={} durationMs={} signal={} errorType={} message={}",
+                requestId,
+                status == null ? 500 : status.value(),
+                receivedAt,
+                completedAt,
+                durationMs,
+                signal,
+                failure.getClass().getSimpleName(),
+                safeMessage(failure));
     }
 
     private static String resolveRequestId(String candidate) {
-        if (candidate != null && candidate.length() <= MAX_REQUEST_ID_LENGTH
+        if (candidate != null
+                && candidate.length() <= MAX_REQUEST_ID_LENGTH
                 && candidate.matches("[A-Za-z0-9._-]+")) {
             return candidate;
         }
+
         return UUID.randomUUID().toString();
     }
 
     private static String safeMessage(Throwable error) {
         String message = error.getMessage();
-        if (message == null || message.isBlank()) return error.getClass().getSimpleName();
+
+        if (message == null || message.isBlank()) {
+            return error.getClass().getSimpleName();
+        }
+
         return message.replaceAll("[\\r\\n]+", " ");
     }
 }

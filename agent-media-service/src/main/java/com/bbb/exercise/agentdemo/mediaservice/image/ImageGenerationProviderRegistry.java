@@ -16,10 +16,20 @@ public final class ImageGenerationProviderRegistry {
     @Autowired
     public ImageGenerationProviderRegistry(DashScopeImageGenerationClient dashScope) {
         EnumMap<ModelProvider, ImageGenerationProvider> values = new EnumMap<>(ModelProvider.class);
+
         values.put(ModelProvider.QWEN, new DashScopeImageGenerationProvider(dashScope));
-        values.put(ModelProvider.GPT, new OpenAiCompatibleImageGenerationProvider(ModelProvider.GPT, "https://api.openai.com/v1"));
-        values.put(ModelProvider.GLM, new OpenAiCompatibleImageGenerationProvider(ModelProvider.GLM, "https://open.bigmodel.cn/api/paas/v4"));
-        values.put(ModelProvider.HY, new OpenAiCompatibleImageGenerationProvider(ModelProvider.HY, "https://api.hunyuan.cloud.tencent.com/v1"));
+        values.put(
+                ModelProvider.GPT,
+                new OpenAiCompatibleImageGenerationProvider(
+                        ModelProvider.GPT, "https://api.openai.com/v1"));
+        values.put(
+                ModelProvider.GLM,
+                new OpenAiCompatibleImageGenerationProvider(
+                        ModelProvider.GLM, "https://open.bigmodel.cn/api/paas/v4"));
+        values.put(
+                ModelProvider.HY,
+                new OpenAiCompatibleImageGenerationProvider(
+                        ModelProvider.HY, "https://api.hunyuan.cloud.tencent.com/v1"));
         this.providers = Map.copyOf(values);
     }
 
@@ -29,16 +39,32 @@ public final class ImageGenerationProviderRegistry {
 
     public static ImageGenerationProviderRegistry defaultRegistry() {
         EnumMap<ModelProvider, ImageGenerationProvider> values = new EnumMap<>(ModelProvider.class);
+
         values.put(ModelProvider.QWEN, new DashScopeImageGenerationProvider(null));
-        values.put(ModelProvider.GPT, new OpenAiCompatibleImageGenerationProvider(ModelProvider.GPT, "https://api.openai.com/v1"));
-        values.put(ModelProvider.GLM, new OpenAiCompatibleImageGenerationProvider(ModelProvider.GLM, "https://open.bigmodel.cn/api/paas/v4"));
-        values.put(ModelProvider.HY, new OpenAiCompatibleImageGenerationProvider(ModelProvider.HY, "https://api.hunyuan.cloud.tencent.com/v1"));
+        values.put(
+                ModelProvider.GPT,
+                new OpenAiCompatibleImageGenerationProvider(
+                        ModelProvider.GPT, "https://api.openai.com/v1"));
+        values.put(
+                ModelProvider.GLM,
+                new OpenAiCompatibleImageGenerationProvider(
+                        ModelProvider.GLM, "https://open.bigmodel.cn/api/paas/v4"));
+        values.put(
+                ModelProvider.HY,
+                new OpenAiCompatibleImageGenerationProvider(
+                        ModelProvider.HY, "https://api.hunyuan.cloud.tencent.com/v1"));
+
         return new ImageGenerationProviderRegistry(values);
     }
 
+    // 1. 供应商路由：按任务指定供应商选择实现，未注册时明确拒绝。
     public ImageGenerationProvider resolve(ModelProvider provider) {
         ImageGenerationProvider result = providers.get(provider);
-        if (result == null) throw new IllegalArgumentException("Provider " + provider + " 不支持图片生成");
+
+        if (result == null) {
+            throw new IllegalArgumentException("Provider " + provider + " 不支持图片生成");
+        }
+
         return result;
     }
 }

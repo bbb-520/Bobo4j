@@ -22,17 +22,19 @@ import java.util.List;
 final class Baseline {
     private static final String ROOT = "/architecture-baseline/";
 
-    private Baseline() {
-    }
+    private Baseline() {}
 
     /** 返回去掉注释与空行后的原始条目，保留 {@code |} 分列结构。 */
     static List<String> entries(String name) {
         InputStream stream = Baseline.class.getResourceAsStream(ROOT + name);
+
         if (stream == null) {
-            throw new IllegalStateException("缺少基线文件 " + ROOT + name
-                    + "；可先运行 BaselineDumpTest 查看当前状态并重建基线。");
+            throw new IllegalStateException(
+                    "缺少基线文件 " + ROOT + name + "；可先运行 BaselineDumpTest 查看当前状态并重建基线。");
         }
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+
+        try (BufferedReader reader =
+                new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             return reader.lines()
                     .map(String::trim)
                     .filter(line -> !line.isEmpty() && !line.startsWith("#"))

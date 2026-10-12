@@ -12,11 +12,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/** 验证创建工作流时写入持久化运行记录。 */
 class AgentWorkflowPersistenceTest {
     @Test
     void startsWorkflowWithDurableRunInsert() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+
+        when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
 
         AgentWorkflowService service = new AgentWorkflowService(jdbc);
         AgentRun run = service.start("REVISE", "draft", "user-1");

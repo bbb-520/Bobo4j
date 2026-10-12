@@ -35,24 +35,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GatewayAuthorizationBoundaryGateTest {
 
     /** 客户端可能伪造的身份头，全部必须被剥离。 */
-    private static final List<String> FORGED_IDENTITY_HEADERS = List.of(
-            "X-User-Id",
-            "X-Tenant-Id",
-            "X-Internal-Principal",
-            "X-Principal",
-            "X-Principal-User",
-            "X-Principal-Signature",
-            "x-principal-anything");
+    private static final List<String> FORGED_IDENTITY_HEADERS =
+            List.of(
+                    "X-User-Id",
+                    "X-Tenant-Id",
+                    "X-Internal-Principal",
+                    "X-Principal",
+                    "X-Principal-User",
+                    "X-Principal-Signature",
+                    "x-principal-anything");
 
     private static final String SESSION_COOKIE = "bbb_agent_session";
 
     @Test
     @DisplayName("客户端自报的身份头全部被剥离，session Cookie 保留")
     void relayFilterStripsEveryClientSuppliedIdentityHeader() {
-        MockServerHttpRequest.BaseBuilder<?> request = MockServerHttpRequest.get("/api/chat/stream")
-                .cookie(new HttpCookie(SESSION_COOKIE, "session-value"))
-                .header("Accept", "text/event-stream")
-                .header("Request-Id", "req-1");
+        MockServerHttpRequest.BaseBuilder<?> request =
+                MockServerHttpRequest.get("/api/chat/stream")
+                        .cookie(new HttpCookie(SESSION_COOKIE, "session-value"))
+                        .header("Accept", "text/event-stream")
+                        .header("Request-Id", "req-1");
+
         for (String header : FORGED_IDENTITY_HEADERS) {
             request.header(header, "forged");
         }
@@ -65,6 +68,7 @@ class GatewayAuthorizationBoundaryGateTest {
                     .as("%s 是客户端自报身份，必须被 Gateway 剥离", header)
                     .isFalse();
         }
+
         assertThat(headers.headerNames())
                 .as("任何以 x-principal 开头的身份头都不得穿透")
                 .noneMatch(name -> name.toLowerCase(Locale.ROOT).startsWith("x-principal"));
@@ -80,46 +84,55 @@ class GatewayAuthorizationBoundaryGateTest {
     @DisplayName("每个路由目标服务名都对应一个真实存在的模块目录")
     void everyRouteTargetResolvesToARealModule() {
         String source = Repository.text(gatewayRoutesSource());
-        Matcher matcher = Pattern.compile(
-                "static\\s+final\\s+String\\s+([A-Z_]*SERVICE_ID)\\s*=\\s*\"([^\"]+)\"").matcher(source);
+        Matcher matcher =
+                Pattern.compile(
+                                "static\\s+final\\s+String\\s+([A-Z_]*SERVICE_ID)\\s*=\\s*\"([^\"]+)\"")
+                        .matcher(source);
 
         int serviceIds = 0;
+
         while (matcher.find()) {
             serviceIds++;
             assertThat(Repository.exists(matcher.group(2) + "/pom.xml"))
-                    .as("%s 声明的服务名 %s 没有对应模块目录，路由会指向不存在的服务",
-                            matcher.group(1), matcher.group(2))
+                    .as("%s 声明的服务名 %s 没有对应模块目录，路由会指向不存在的服务", matcher.group(1), matcher.group(2))
                     .isTrue();
         }
-        assertThat(serviceIds)
-                .as("GatewayRoutes 必须用常量集中声明全部服务名")
-                .isGreaterThanOrEqualTo(5);
+
+        assertThat(serviceIds).as("GatewayRoutes 必须用常量集中声明全部服务名").isGreaterThanOrEqualTo(5);
     }
 
     private static ServerWebExchange forward(MockServerWebExchange exchange) {
         AtomicReference<ServerWebExchange> forwarded = new AtomicReference<>();
-        GatewayFilterChain chain = captured -> {
-            forwarded.set(captured);
-            return Mono.empty();
-        };
+        GatewayFilterChain chain =
+                captured -> {
+                    forwarded.set(captured);
+                    return Mono.empty();
+                };
+
         globalFilter().filter(exchange, chain).block();
 
         assertThat(forwarded.get()).as("过滤器必须把请求继续传给下游").isNotNull();
+
         return forwarded.get();
     }
 
     private static GlobalFilter globalFilter() {
         Object filter;
+
         try {
-            Class<?> type = ModuleClasses.load("agent-gateway",
-                    "com.bbb.exercise.agentdemo.gateway.filter.AuthRelayGlobalFilter");
+            Class<?> type =
+                    ModuleClasses.load(
+                            "agent-gateway",
+                            "com.bbb.exercise.agentdemo.gateway.filter.AuthRelayGlobalFilter");
             filter = type.getDeclaredConstructor().newInstance();
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Gateway 身份中继过滤器不可实例化，身份边界无法验证", e);
         }
+
         assertThat(filter)
                 .as("身份中继过滤器必须实现 GlobalFilter，否则它不会进入请求链路")
                 .isInstanceOf(GlobalFilter.class);
+
         return (GlobalFilter) filter;
     }
 
@@ -127,5 +140,4 @@ class GatewayAuthorizationBoundaryGateTest {
         return Repository.resolve(
                 "agent-gateway/src/main/java/com/bbb/exercise/agentdemo/gateway/config/GatewayRoutes.java");
     }
-
 }

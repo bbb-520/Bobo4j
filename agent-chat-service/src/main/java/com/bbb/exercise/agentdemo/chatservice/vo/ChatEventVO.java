@@ -6,7 +6,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-
 /**
  * 对外 SSE 事件载体：流式对话中每推送一条事件，就是本对象被序列化后的结果。
  * 前端按 {@code eventType} 分派处理（正文 / 工具直播 / 用量 / 结束 等）。

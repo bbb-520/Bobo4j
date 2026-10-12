@@ -42,9 +42,7 @@ class RootPackageCouplingSnapshotGateTest {
     @DisplayName("没有新增的新包 → 根包 编译期依赖")
     void noNewRootPackageImport() {
         assertNoNewEntries(
-                ArchitectureState.rootPackageImports(),
-                IMPORT_BASELINE,
-                "新风格包又 import 了遗留根包");
+                ArchitectureState.rootPackageImports(), IMPORT_BASELINE, "新风格包又 import 了遗留根包");
     }
 
     @Test
@@ -58,10 +56,12 @@ class RootPackageCouplingSnapshotGateTest {
                 .allMatch(entry -> entry.startsWith("agent-") && entry.endsWith(".java"));
     }
 
-    private static void assertNoNewEntries(List<String> current, String baselineName, String description) {
+    private static void assertNoNewEntries(
+            List<String> current, String baselineName, String description) {
         Set<String> registered = new LinkedHashSet<>(Baseline.entries(baselineName));
 
         List<String> added = new ArrayList<>();
+
         for (String entry : current) {
             if (!registered.contains(entry)) {
                 added.add(description + "：" + entry);
@@ -69,14 +69,15 @@ class RootPackageCouplingSnapshotGateTest {
         }
 
         assertThat(added)
-                .as("新代码不得再耦合遗留根包；先把能力归到 agent-common / agent-api，"
-                        + "再同步精简 %s", baselineName)
+                .as("新代码不得再耦合遗留根包；先把能力归到 agent-common / agent-api，" + "再同步精简 %s", baselineName)
                 .isEmpty();
 
-        List<String> resolved = registered.stream().filter(entry -> !current.contains(entry)).toList();
+        List<String> resolved =
+                registered.stream().filter(entry -> !current.contains(entry)).toList();
+
         if (!resolved.isEmpty()) {
-            System.out.println("基线可收缩：" + baselineName + " 已消除 " + resolved.size()
-                    + " 条 → " + resolved);
+            System.out.println(
+                    "基线可收缩：" + baselineName + " 已消除 " + resolved.size() + " 条 → " + resolved);
         }
     }
 }

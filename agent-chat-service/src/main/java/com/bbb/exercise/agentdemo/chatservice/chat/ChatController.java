@@ -17,7 +17,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 
-
 /**
  * 对话入口（WebFlux 响应式 HTTP 层）。
  *
@@ -35,40 +34,85 @@ public class ChatController {
     private final ChatService chatService;
     private final com.bbb.exercise.agentdemo.runtime.identity.ChatIdentityResolver identityResolver;
 
-
+    // 1. 聊天入口：解析当前身份与会话，将本轮业务事件转换为 SSE 响应。
     /**
      * 流式对话：以 SSE（text/event-stream）持续推送事件，直到发送 {@code STOP} 事件后关闭。
      * 返回类型是 {@code Flux<ChatEventVO>}，由 WebFlux 逐条序列化写出，无需手动 flush。
      */
-    @PostMapping(path = {"", "/completions"}, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Mono<ResponseEntity<Flux<ChatEventVO>>> chat(@RequestBody(required = false) ChatRequest request,
-                                                        ServerWebExchange exchange) {
+    @PostMapping(
+            path = {"", "/completions"},
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Mono<ResponseEntity<Flux<ChatEventVO>>> chat(
+            @RequestBody(required = false) ChatRequest request, ServerWebExchange exchange) {
         Instant receivedAt = Instant.now();
         String requestId = exchange.getAttribute(RequestTimingWebFilter.REQUEST_ID_ATTRIBUTE);
         // 允许空 body：request 为 null 时用空对象兜底，交给 ChatService 做参数校验
         ChatRequest safe = request == null ? new ChatRequest() : request;
-        String invalid = ChatService.validateQuestion(safe.getQuestion(),
-                safe.getAttachments() != null && !safe.getAttachments().isEmpty());
+        String invalid =
+                ChatService.validateQuestion(
+                        safe.getQuestion(),
+                        safe.getAttachments() != null && !safe.getAttachments().isEmpty());
+
         if (invalid != null) {
-            log.info("[chat] message_rejected requestId={} receivedAt={} reason={}", requestId, receivedAt, invalid);
-            return Mono.just(ResponseEntity.ok()
-                    .contentType(MediaType.TEXT_EVENT_STREAM)
-                    .body(Flux.just(
-                            ChatEventVO.builder().eventType(com.bbb.exercise.agentdemo.chatservice.enums.ChatEventTypeEnum.ERROR.getValue()).eventData(invalid).build(),
-                            ChatEventVO.builder().eventType(com.bbb.exercise.agentdemo.chatservice.enums.ChatEventTypeEnum.STOP.getValue()).build())));
+            log.info(
+                    "[chat] message_rejected requestId={} receivedAt={} reason={}",
+                    requestId,
+                    receivedAt,
+                    invalid);
+            return Mono.just(
+                    ResponseEntity.ok()
+                            .contentType(MediaType.TEXT_EVENT_STREAM)
+                            .body(
+                                    Flux.just(
+                                            ChatEventVO.builder()
+                                                    .eventType(
+                                                            com.bbb.exercise.agentdemo.chatservice
+                                                                    .enums.ChatEventTypeEnum.ERROR
+                                                                    .getValue())
+                                                    .eventData(invalid)
+                                                    .build(),
+                                            ChatEventVO.builder()
+                                                    .eventType(
+                                                            com.bbb.exercise.agentdemo.chatservice
+                                                                    .enums.ChatEventTypeEnum.STOP
+                                                                    .getValue())
+                                                    .build())));
         }
 
-        log.info("[chat] message_received requestId={} receivedAt={} sessionIdPresent={} questionLength={}",
-                requestId, receivedAt,
+        log.info(
+                "[chat] message_received requestId={} receivedAt={} sessionIdPresent={} questionLength={}",
+                requestId,
+                receivedAt,
                 safe.getSessionId() != null && !safe.getSessionId().isBlank(),
-                safe.getQuestion() == null ? 0 : safe.getQuestion().codePointCount(0, safe.getQuestion().length()));
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> chatService.openConversation(safe.getSessionId(), identity)
-                        .map(session -> ResponseEntity.ok()
-                                .contentType(MediaType.TEXT_EVENT_STREAM)
-                                .body(chatService.chat(safe.getQuestion(), session, safe.getAttachments()))))
-                .doOnError(error -> log.warn("[chat] message_setup_failed requestId={} receivedAt={} errorType={} message={}",
-                        requestId, receivedAt, error.getClass().getSimpleName(), safeMessage(error)));
+                safe.getQuestion() == null
+                        ? 0
+                        : safe.getQuestion().codePointCount(0, safe.getQuestion().length()));
+
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                chatService
+                                        .openConversation(safe.getSessionId(), identity)
+                                        .map(
+                                                session ->
+                                                        ResponseEntity.ok()
+                                                                .contentType(
+                                                                        MediaType.TEXT_EVENT_STREAM)
+                                                                .body(
+                                                                        chatService.chat(
+                                                                                safe.getQuestion(),
+                                                                                session,
+                                                                                safe
+                                                                                        .getAttachments()))))
+                .doOnError(
+                        error ->
+                                log.warn(
+                                        "[chat] message_setup_failed requestId={} receivedAt={} errorType={} message={}",
+                                        requestId,
+                                        receivedAt,
+                                        error.getClass().getSimpleName(),
+                                        safeMessage(error)));
     }
 
     private static String safeMessage(Throwable error) {

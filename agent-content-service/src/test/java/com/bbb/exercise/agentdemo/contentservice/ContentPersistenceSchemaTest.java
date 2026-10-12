@@ -7,10 +7,13 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证内容表迁移包含用户归属、版本和发布幂等约束。 */
 class ContentPersistenceSchemaTest {
     @Test
     void contentMigrationContainsOwnerVersionAndPublishIdempotencyGuards() throws Exception {
-        String migration = Files.readString(Path.of("src/main/resources/db/migration/V1__content_baseline.sql"));
+        String migration =
+                Files.readString(
+                        Path.of("src/main/resources/db/migration/V1__content_baseline.sql"));
 
         assertThat(migration).contains("CREATE TABLE IF NOT EXISTS bobo_world_item");
         assertThat(migration).contains("source_job_id CHAR(36) NOT NULL");

@@ -20,19 +20,34 @@ public class ImageAssetController {
     private final ChatIdentityResolver identityResolver;
     private final ImageAssetService assets;
 
+    // 1. 浏览器直传：从当前认证身份申请限时上传策略。
     @PostMapping("/upload-policy")
     public Mono<ResponseEntity<ImageAssetService.UploadPolicyView>> uploadPolicy(
-            @RequestBody ImageAssetService.UploadPolicyRequest request, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(assets.createPolicy(identity, request))))
+            @RequestBody ImageAssetService.UploadPolicyRequest request,
+            ServerWebExchange exchange) {
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.ok(
+                                                        assets.createPolicy(identity, request))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // 2. 直传确认：声明上传结束后仍由服务端核对对象元数据。
     @PostMapping("/{assetId}/complete")
     public Mono<ResponseEntity<ImageAssetService.AssetView>> complete(
             @PathVariable String assetId, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(assets.complete(identity, assetId))))
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.ok(
+                                                        assets.complete(identity, assetId))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 }

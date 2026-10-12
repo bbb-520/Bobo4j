@@ -7,10 +7,12 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证聊天服务迁移脚本不创建归属于媒体服务的图片业务表。 */
 class MigratedImageSchemaContractTest {
     @Test
     void chatDoesNotBootstrapMediaOwnedTables() throws Exception {
-        String migration = Files.readString(Path.of("src/main/resources/db/migration/V1__chat_baseline.sql"));
+        String migration =
+                Files.readString(Path.of("src/main/resources/db/migration/V1__chat_baseline.sql"));
 
         assertThat(migration).doesNotContain("CREATE TABLE IF NOT EXISTS image_asset");
         assertThat(migration).doesNotContain("CREATE TABLE IF NOT EXISTS image_job");

@@ -42,26 +42,34 @@ class CommonModuleBoundarySnapshotGateTest {
     @Test
     @DisplayName("合法公共包内不得出现 Web 层 / 持久层 / 包外越界")
     void hardBoundaryViolationsAreAbsent() {
-        List<String> hard = ArchitectureState.commonModuleBoundaryViolations().stream()
-                .filter(entry -> ArchitectureState.HARD_COMMON_CATEGORIES.contains(Baseline.column(entry, 1)))
-                .toList();
+        List<String> hard =
+                ArchitectureState.commonModuleBoundaryViolations().stream()
+                        .filter(
+                                entry ->
+                                        ArchitectureState.HARD_COMMON_CATEGORIES.contains(
+                                                Baseline.column(entry, 1)))
+                        .toList();
 
         assertThat(hard)
-                .as("agent-common 只能放无业务归属的公共能力。Web 层类归各服务，持久化归 owner 模块，"
-                        + "不要塞进 com.bbb.exercise.agentdemo.common（格式：模块内路径|类别）")
+                .as(
+                        "agent-common 只能放无业务归属的公共能力。Web 层类归各服务，持久化归 owner 模块，"
+                                + "不要塞进 com.bbb.exercise.agentdemo.common（格式：模块内路径|类别）")
                 .isEmpty();
     }
 
     @Test
     @DisplayName("基线不得登记硬类别（防止把立即变红规则偷偷降级为快照）")
     void baselineMustNotDowngradeHardRules() {
-        List<String> downgraded = Baseline.entries(BASELINE).stream()
-                .filter(entry -> ArchitectureState.HARD_COMMON_CATEGORIES.contains(Baseline.column(entry, 1)))
-                .toList();
+        List<String> downgraded =
+                Baseline.entries(BASELINE).stream()
+                        .filter(
+                                entry ->
+                                        ArchitectureState.HARD_COMMON_CATEGORIES.contains(
+                                                Baseline.column(entry, 1)))
+                        .toList();
 
         assertThat(downgraded)
-                .as("%s 只能登记 LEGACY_ROOT_PACKAGE 这一档。把硬类别写进基线，"
-                        + "等于让「立即变红」规则失效", BASELINE)
+                .as("%s 只能登记 LEGACY_ROOT_PACKAGE 这一档。把硬类别写进基线，" + "等于让「立即变红」规则失效", BASELINE)
                 .isEmpty();
     }
 
@@ -72,6 +80,7 @@ class CommonModuleBoundarySnapshotGateTest {
         Set<String> registered = new LinkedHashSet<>(Baseline.entries(BASELINE));
 
         List<String> added = new ArrayList<>();
+
         for (String entry : current) {
             if (!registered.contains(entry)) {
                 added.add("新增归属越界：" + entry);
@@ -79,14 +88,17 @@ class CommonModuleBoundarySnapshotGateTest {
         }
 
         assertThat(added)
-                .as("agent-common 不允许再新增归属越界的类；要收敛请同步精简 %s "
-                        + "（可用 BaselineDumpTest 打印当前实际状态）", BASELINE)
+                .as(
+                        "agent-common 不允许再新增归属越界的类；要收敛请同步精简 %s " + "（可用 BaselineDumpTest 打印当前实际状态）",
+                        BASELINE)
                 .isEmpty();
 
-        List<String> resolved = registered.stream().filter(entry -> !current.contains(entry)).toList();
+        List<String> resolved =
+                registered.stream().filter(entry -> !current.contains(entry)).toList();
+
         if (!resolved.isEmpty()) {
-            System.out.println("基线可收缩：" + BASELINE + " 已消除 " + resolved.size()
-                    + " 条 → " + resolved);
+            System.out.println(
+                    "基线可收缩：" + BASELINE + " 已消除 " + resolved.size() + " 条 → " + resolved);
         }
     }
 
@@ -96,8 +108,7 @@ class CommonModuleBoundarySnapshotGateTest {
         for (String entry : Baseline.entries(BASELINE)) {
             String path = Baseline.column(entry, 0);
             assertThat(Repository.exists("agent-common/" + path))
-                    .as("基线登记的越界文件 %s 已不存在。若确实迁走了，请同步精简 %s；"
-                            + "若只是想让它「安静」，那是改错了地方", path, BASELINE)
+                    .as("基线登记的越界文件 %s 已不存在。若确实迁走了，请同步精简 %s；" + "若只是想让它「安静」，那是改错了地方", path, BASELINE)
                     .isTrue();
         }
     }

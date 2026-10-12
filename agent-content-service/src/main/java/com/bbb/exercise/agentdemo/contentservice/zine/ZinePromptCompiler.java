@@ -12,22 +12,30 @@ import org.springframework.stereotype.Component;
 @Component
 public class ZinePromptCompiler {
 
-    public CompiledPrompt compile(ZineMode mode, ZineLanguage language, String text, String guidance) {
+    // 1. 创作指令编译：将模式、语言和用户方向转换为确定性的视觉要求。
+    public CompiledPrompt compile(
+            ZineMode mode, ZineLanguage language, String text, String guidance) {
         String suppliedText = clean(text);
         String userGuidance = clean(guidance);
         String textInstruction = textInstruction(language, suppliedText);
-        String guidanceInstruction = userGuidance.isEmpty()
-                ? "No additional user art direction was supplied; make source-aware decisions yourself."
-                : "Additional user art direction, to be treated as a creative brief: " + userGuidance;
+        String guidanceInstruction =
+                userGuidance.isEmpty()
+                        ? "No additional user art direction was supplied; make source-aware decisions yourself."
+                        : "Additional user art direction, to be treated as a creative brief: "
+                                + userGuidance;
 
         if (mode == ZineMode.DISTILLATION) {
-            return new CompiledPrompt(distillationPrompt(textInstruction, guidanceInstruction),
+            return new CompiledPrompt(
+                    distillationPrompt(textInstruction, guidanceInstruction),
                     "将原图仅作为语义与情绪来源，提取一个核心隐喻，再用纸张、插画、留白和单一高纯度色彩重新组织成独立纸刊作品。原始照片不会进入成品。 ");
         }
-        return new CompiledPrompt(gatheredPrompt(textInstruction, guidanceInstruction),
+
+        return new CompiledPrompt(
+                gatheredPrompt(textInstruction, guidanceInstruction),
                 "保留照片作为真实现场锚点，用源图中的轮廓或空间关系延展出大面积克制的纸上插画，并以一处源自场景的高纯度色彩串联照片、撕纸边界与留白。 ");
     }
 
+    // 2. 实景拼贴模式：围绕源图现场锚点组织纸刊风格的画面要求。
     private static String gatheredPrompt(String textInstruction, String guidanceInstruction) {
         return """
                 Create a calm, tactile Gathered Scenes Zine poster from the supplied reference image.
@@ -59,9 +67,11 @@ public class ZinePromptCompiler {
                 logos, CTA, watermark, glossy 3D, cinematic lighting, anime, cute cartoon, dense scrapbooking,
                 multiple competing illustration styles, extra bright hues, typography, labels, letters, numbers,
                 logos, watermarks, buttons, or any other written copy.
-                """.formatted(textInstruction, guidanceInstruction);
+                """
+                .formatted(textInstruction, guidanceInstruction);
     }
 
+    // 3. 影像蒸馏模式：提取源图语义与情绪，再组织独立插画方向。
     private static String distillationPrompt(String textInstruction, String guidanceInstruction) {
         return """
                 Create an independently compelling Scene Distillation Zine poster from the supplied reference image.
@@ -96,27 +106,35 @@ public class ZinePromptCompiler {
                 Do not reproduce, embed, crop, collage, trace, or retain photographic pixels or photorealistic
                 regions from the reference. The final image must contain original illustration, paper, and
                 typography only.
-                """.formatted(textInstruction, guidanceInstruction);
+                """
+                .formatted(textInstruction, guidanceInstruction);
     }
 
+    // 4. 用户方向处理：把输入文字作为视觉创意依据，具体画面仍由模型生成。
     private static String textInstruction(ZineLanguage language, String text) {
         if (!text.isEmpty()) {
             return "User creative direction (use only as visual guidance; never render it as text): «"
-                    + text + "». Do not reproduce, translate, typeset, watermark, or embed any part of these words in the image.";
+                    + text
+                    + "». Do not reproduce, translate, typeset, watermark, or embed any part of these words in the image.";
         }
-        String languageLabel = switch (language) {
-            case CHINESE -> "Chinese";
-            case BILINGUAL -> "Chinese–English";
-            case ENGLISH -> "English";
-        };
+
+        String languageLabel =
+                switch (language) {
+                    case CHINESE -> "Chinese";
+                    case BILINGUAL -> "Chinese–English";
+                    case ENGLISH -> "English";
+                };
+
         return "No typography or written copy: do not add words, characters, letters, numbers, symbols, labels, logos, or watermarks to the image."
-                + " Language preference: " + languageLabel + ".";
+                + " Language preference: "
+                + languageLabel
+                + ".";
     }
 
     private static String clean(String value) {
         return value == null ? "" : value.trim();
     }
 
-    public record CompiledPrompt(String prompt, String rationale) {
-    }
+    /** 编译后的 Zine 提示词及其创作依据，供图片生成和结果展示使用。 */
+    public record CompiledPrompt(String prompt, String rationale) {}
 }

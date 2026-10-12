@@ -33,10 +33,14 @@ class LayerBoundaryArchTest {
     @Test
     @DisplayName("Gateway 不得依赖遗留根包")
     void gatewayMustNotDependOnMigratedRootPackage() {
-        ArchRule rule = noClasses()
-                .that().resideInAPackage("com.bbb.exercise.agentdemo.gateway..")
-                .should().dependOnClassesThat().resideInAPackage(MIGRATED_ROOT)
-                .because("Gateway 只做路由与不信任输入，不应耦合旧单体实现");
+        ArchRule rule =
+                noClasses()
+                        .that()
+                        .resideInAPackage("com.bbb.exercise.agentdemo.gateway..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAPackage(MIGRATED_ROOT)
+                        .because("Gateway 只做路由与不信任输入，不应耦合旧单体实现");
 
         rule.check(importModule("agent-gateway"));
     }
@@ -44,10 +48,14 @@ class LayerBoundaryArchTest {
     @Test
     @DisplayName("Orchestrator 不得依赖遗留根包")
     void orchestratorMustNotDependOnMigratedRootPackage() {
-        ArchRule rule = noClasses()
-                .that().resideInAPackage("com.bbb.exercise.agentdemo.orchestrator..")
-                .should().dependOnClassesThat().resideInAPackage(MIGRATED_ROOT)
-                .because("AgentRun 状态机必须只依赖自己的领域模型");
+        ArchRule rule =
+                noClasses()
+                        .that()
+                        .resideInAPackage("com.bbb.exercise.agentdemo.orchestrator..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAPackage(MIGRATED_ROOT)
+                        .because("AgentRun 状态机必须只依赖自己的领域模型");
 
         rule.check(importModule("agent-orchestrator-service"));
     }
@@ -55,15 +63,19 @@ class LayerBoundaryArchTest {
     @Test
     @DisplayName("Gateway 不得直接依赖任何业务服务的实现类")
     void gatewayMustNotDependOnServiceImplementations() {
-        ArchRule rule = noClasses()
-                .that().resideInAPackage("com.bbb.exercise.agentdemo.gateway..")
-                .should().dependOnClassesThat().resideInAnyPackage(
-                        "com.bbb.exercise.agentdemo.authservice..",
-                        "com.bbb.exercise.agentdemo.chatservice..",
-                        "com.bbb.exercise.agentdemo.mediaservice..",
-                        "com.bbb.exercise.agentdemo.contentservice..",
-                        "com.bbb.exercise.agentdemo.orchestrator..")
-                .because("Gateway 只能通过 HTTP/discovery 名调用下游，不能编译期依赖服务实现");
+        ArchRule rule =
+                noClasses()
+                        .that()
+                        .resideInAPackage("com.bbb.exercise.agentdemo.gateway..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAnyPackage(
+                                "com.bbb.exercise.agentdemo.authservice..",
+                                "com.bbb.exercise.agentdemo.chatservice..",
+                                "com.bbb.exercise.agentdemo.mediaservice..",
+                                "com.bbb.exercise.agentdemo.contentservice..",
+                                "com.bbb.exercise.agentdemo.orchestrator..")
+                        .because("Gateway 只能通过 HTTP/discovery 名调用下游，不能编译期依赖服务实现");
 
         rule.check(importModule("agent-gateway"));
     }

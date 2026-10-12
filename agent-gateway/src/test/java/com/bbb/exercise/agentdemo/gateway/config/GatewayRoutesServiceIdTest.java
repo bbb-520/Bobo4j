@@ -25,18 +25,22 @@ class GatewayRoutesServiceIdTest {
             context.registerBean(WebFluxProperties.class);
             context.registerBean(PathRoutePredicateFactory.class);
             context.refresh();
-            Map<String, String> routes = new GatewayRoutes()
-                    .agentRoutes(new RouteLocatorBuilder(context))
-                    .getRoutes()
-                    .collect(Collectors.toMap(Route::getId, route -> route.getUri().toString()))
-                    .block();
+            Map<String, String> routes =
+                    new GatewayRoutes()
+                            .agentRoutes(new RouteLocatorBuilder(context))
+                            .getRoutes()
+                            .collect(
+                                    Collectors.toMap(
+                                            Route::getId, route -> route.getUri().toString()))
+                            .block();
 
             assertThat(routes).isNotNull();
             assertThat(routes).containsEntry("auth", "lb://" + GatewayRoutes.AUTH_SERVICE_ID);
             assertThat(routes).containsEntry("chat", "lb://" + GatewayRoutes.CHAT_SERVICE_ID);
             assertThat(routes).containsEntry("images", "lb://" + GatewayRoutes.MEDIA_SERVICE_ID);
             assertThat(routes).containsEntry("content", "lb://" + GatewayRoutes.CONTENT_SERVICE_ID);
-            assertThat(routes).containsEntry("orchestrator", "lb://" + GatewayRoutes.ORCHESTRATOR_SERVICE_ID);
+            assertThat(routes)
+                    .containsEntry("orchestrator", "lb://" + GatewayRoutes.ORCHESTRATOR_SERVICE_ID);
             assertThat(routes).containsEntry("chat", "lb://agent-chat-service");
         }
     }

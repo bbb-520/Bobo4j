@@ -8,6 +8,11 @@ import org.springframework.stereotype.Component;
 public class PasswordHasher {
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(12);
 
-    public String hash(String raw) { return encoder.encode(raw); }
-    public boolean matches(String raw, String encoded) { return encoder.matches(raw, encoded); }
+    public String hash(String raw) {
+        return encoder.encode(raw);
+    }
+
+    public boolean matches(String raw, String encoded) {
+        return encoder.matches(raw, encoded);
+    }
 }

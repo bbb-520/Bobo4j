@@ -26,14 +26,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeploymentDescriptorDriftGateTest {
 
     /** 会以独立进程运行的模块。 */
-    private static final List<String> RUNTIME_MODULES = List.of(
-            "agent-gateway",
-            "agent-auth-service",
-            "agent-chat-service",
-            "agent-rag-service",
-            "agent-media-service",
-            "agent-content-service",
-            "agent-orchestrator-service");
+    private static final List<String> RUNTIME_MODULES =
+            List.of(
+                    "agent-gateway",
+                    "agent-auth-service",
+                    "agent-chat-service",
+                    "agent-rag-service",
+                    "agent-media-service",
+                    "agent-content-service",
+                    "agent-orchestrator-service");
 
     @Test
     @DisplayName("README 端口表覆盖全部运行模块，且与模块 application.yml 默认端口一致")
@@ -45,12 +46,21 @@ class DeploymentDescriptorDriftGateTest {
                 .containsExactlyInAnyOrderElementsOf(RUNTIME_MODULES);
 
         List<String> drift = new ArrayList<>();
+
         for (String module : RUNTIME_MODULES) {
-            OptionalInt declared = ArchitectureState.declaredServerPort(
-                    Repository.resolve(module + "/src/main/resources/application.yml"));
+            OptionalInt declared =
+                    ArchitectureState.declaredServerPort(
+                            Repository.resolve(module + "/src/main/resources/application.yml"));
+
             assertThat(declared).as("%s 必须声明 server.port", module).isPresent();
+
             if (declared.getAsInt() != readme.get(module)) {
-                drift.add(module + "：README " + readme.get(module) + " vs application.yml " + declared.getAsInt());
+                drift.add(
+                        module
+                                + "：README "
+                                + readme.get(module)
+                                + " vs application.yml "
+                                + declared.getAsInt());
             }
         }
 
@@ -66,12 +76,15 @@ class DeploymentDescriptorDriftGateTest {
         assertThat(topology).as("README 顶层架构图必须画出门户服务").containsKey("agent-gateway");
 
         List<String> drift = new ArrayList<>();
-        topology.forEach((service, port) -> {
-            Integer expected = table.get(service);
-            if (expected != null && !expected.equals(port)) {
-                drift.add(service + "：架构图 " + port + " vs 端口表 " + expected);
-            }
-        });
+
+        topology.forEach(
+                (service, port) -> {
+                    Integer expected = table.get(service);
+
+                    if (expected != null && !expected.equals(port)) {
+                        drift.add(service + "：架构图 " + port + " vs 端口表 " + expected);
+                    }
+                });
 
         assertThat(drift).as("README 两处端口不能自相矛盾").isEmpty();
     }
@@ -80,21 +93,28 @@ class DeploymentDescriptorDriftGateTest {
     @DisplayName("Nacos 导入配置的服务名与端口必须与模块一致")
     void nacosImportsMatchModules() {
         List<String> drift = new ArrayList<>();
+
         for (String module : RUNTIME_MODULES) {
             Path imported = Repository.resolve("infra/nacos/import/" + module + ".yml");
-            assertThat(imported)
-                    .as("%s 必须有对应的 Nacos 导入配置，否则服务名/端口会走默认值", module)
-                    .exists();
+
+            assertThat(imported).as("%s 必须有对应的 Nacos 导入配置，否则服务名/端口会走默认值", module).exists();
 
             if (!module.equals(ArchitectureState.declaredApplicationName(imported))) {
-                drift.add(module + " 的 Nacos 配置声明了错误的服务名："
-                        + ArchitectureState.declaredApplicationName(imported));
+                drift.add(
+                        module
+                                + " 的 Nacos 配置声明了错误的服务名："
+                                + ArchitectureState.declaredApplicationName(imported));
             }
+
             OptionalInt nacosPort = ArchitectureState.declaredServerPort(imported);
+
             if (nacosPort.isPresent()
                     && nacosPort.getAsInt() != ArchitectureState.readmeModulePorts().get(module)) {
-                drift.add(module + " 的 Nacos 配置端口 " + nacosPort.getAsInt()
-                        + " 与模块默认端口不一致（Nacos 优先级更高，会直接抢占端口）");
+                drift.add(
+                        module
+                                + " 的 Nacos 配置端口 "
+                                + nacosPort.getAsInt()
+                                + " 与模块默认端口不一致（Nacos 优先级更高，会直接抢占端口）");
             }
         }
 
@@ -105,9 +125,12 @@ class DeploymentDescriptorDriftGateTest {
     @DisplayName("模块声明的服务名与模块目录名一致")
     void moduleApplicationNamesMatchModuleDirectories() {
         List<String> drift = new ArrayList<>();
+
         for (String module : RUNTIME_MODULES) {
-            String name = ArchitectureState.declaredApplicationName(
-                    Repository.resolve(module + "/src/main/resources/application.yml"));
+            String name =
+                    ArchitectureState.declaredApplicationName(
+                            Repository.resolve(module + "/src/main/resources/application.yml"));
+
             if (!module.equals(name)) {
                 drift.add(module + " 声明了服务名 " + name);
             }
@@ -121,14 +144,17 @@ class DeploymentDescriptorDriftGateTest {
     void portsAreUnique() {
         Map<Integer, String> seen = new LinkedHashMap<>();
         List<String> conflicts = new ArrayList<>();
-        ArchitectureState.readmeModulePorts().forEach((module, port) -> {
-            String previous = seen.put(port, module);
-            if (previous != null) {
-                conflicts.add(port + " 被 " + previous + " 与 " + module + " 同时占用");
-            }
-        });
+
+        ArchitectureState.readmeModulePorts()
+                .forEach(
+                        (module, port) -> {
+                            String previous = seen.put(port, module);
+
+                            if (previous != null) {
+                                conflicts.add(port + " 被 " + previous + " 与 " + module + " 同时占用");
+                            }
+                        });
 
         assertThat(conflicts).as("端口重复会在本地/容器同时启动时直接失败").isEmpty();
     }
-
 }

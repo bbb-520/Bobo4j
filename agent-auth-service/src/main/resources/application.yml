@@ -38,20 +38,30 @@ spring:
 server:
   port: ${SERVER_PORT:18081}
   shutdown: graceful
+logging:
+  level:
+    # SDK logs contain complete signed request and buyer/transaction payloads.
+    sdk.biz.info: OFF
+    sdk.biz.err: OFF
+    sdk.comm.err: OFF
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true
 app:
   platform:
-    api-key: ${PLATFORM_API_KEY:}
-    chat-model: ${PLATFORM_CHAT_MODEL:qwen-turbo}
-    vision-model: ${PLATFORM_VISION_MODEL:qwen-vl-plus}
+    provider: ${PLATFORM_PROVIDER:GPT}
+    api-key: ${OPENAI_API_KEY:${PLATFORM_API_KEY:}}
+    chat-model: ${PLATFORM_CHAT_MODEL:gpt-4.1}
+    vision-model: ${PLATFORM_VISION_MODEL:gpt-4.1}
     image-model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
     embedding-model: ${PLATFORM_EMBEDDING_MODEL:text-embedding-v4}
     rerank-model: ${PLATFORM_RERANK_MODEL:qwen3-rerank}
-    evaluation-model: ${PLATFORM_EVALUATION_MODEL:qwen-plus}
+    evaluation-model: ${PLATFORM_EVALUATION_MODEL:gpt-4.1}
     fallback-model: ${PLATFORM_FALLBACK_MODEL:qwen-plus}
-    base-url: ${PLATFORM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    base-url: ${PLATFORM_BASE_URL:https://api.openai.com/v1}
+    qwen-api-key: ${QWEN_API_KEY:${PLATFORM_QWEN_API_KEY:}}
+    qwen-base-url: ${PLATFORM_QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    vision-fallback-model: ${PLATFORM_VISION_FALLBACK_MODEL:qwen-vl-plus}
     # qwen3-rerank requires the operator's regional workspace URL; no guessed universal endpoint.
     rerank-base-url: ${PLATFORM_RERANK_BASE_URL:}
     fallback-provider: ${PLATFORM_FALLBACK_PROVIDER:QWEN}
@@ -68,11 +78,12 @@ app:
     low-balance-micros: ${BILLING_LOW_BALANCE_MICROS:500000}
     admission-aging-seconds: ${BILLING_ADMISSION_AGING_SECONDS:30}
     platform-fault:
-      enabled: ${BILLING_PLATFORM_FAULT_ENABLED:false}
-      group-cap-micros: ${BILLING_PLATFORM_FAULT_GROUP_CAP_MICROS:400000}
+      enabled: ${BILLING_PLATFORM_FAULT_ENABLED:true}
+      group-cap-micros: ${BILLING_PLATFORM_FAULT_GROUP_CAP_MICROS:600000}
       window-cap-micros: ${BILLING_PLATFORM_FAULT_WINDOW_CAP_MICROS:2000000}
       unresolved-cap: ${BILLING_PLATFORM_FAULT_UNRESOLVED_CAP:10}
   payments:
+    reconcile-delay-ms: ${PAYMENT_RECONCILE_DELAY_MS:15000}
     notify-base-url: ${PAYMENT_NOTIFY_BASE_URL:}
     alipay:
       enabled: ${ALIPAY_ENABLED:false}

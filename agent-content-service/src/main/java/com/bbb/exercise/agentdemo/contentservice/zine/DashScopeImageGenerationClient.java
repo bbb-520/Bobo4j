@@ -23,44 +23,115 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
 
     public DashScopeImageGenerationClient(ZineProperties properties) {
         HttpClient httpClient = HttpClient.create().responseTimeout(properties.getTimeout());
-        this.webClient = WebClient.builder().clientConnector(new ReactorClientHttpConnector(httpClient))
-                .baseUrl(properties.getBaseUrl()).build();
+
+        this.webClient =
+                WebClient.builder()
+                        .clientConnector(new ReactorClientHttpConnector(httpClient))
+                        .baseUrl(properties.getBaseUrl())
+                        .build();
         this.properties = properties;
     }
 
     @Override
     public Mono<ZineImageResult> generate(String imageDataUrl, String prompt, String apiKey) {
-        if (!properties.isEnabled()) return Mono.error(new IllegalStateException("图片生成服务未启用，请设置 app.zine.enabled=true"));
-        if (apiKey == null || apiKey.isBlank()) return Mono.error(new IllegalStateException("请先配置阿里云 API Key"));
-        Map<String, Object> request = Map.of("model", properties.getModel(), "input", Map.of("messages", List.of(Map.of(
-                "role", "user", "content", List.of(Map.of("image", imageDataUrl), Map.of("text", prompt))))),
-                "parameters", Map.of("prompt_extend", properties.isPromptExtend(), "watermark", properties.isWatermark(),
-                        "n", 1, "size", properties.getSize()));
-        return webClient.post().uri(properties.getEndpoint()).contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + apiKey).bodyValue(request)
-                .retrieve().onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
-                        .defaultIfEmpty("无响应正文").map(body -> new ZineProviderException("图片生成服务返回 "
-                                + response.statusCode().value() + "：" + shorten(body))))
-                .bodyToMono(JsonNode.class).map(this::parseResult)
-                .doOnError(error -> log.warn("[zine] image provider failed: {}", error.getMessage()));
+        if (!properties.isEnabled()) {
+            return Mono.error(new IllegalStateException("图片生成服务未启用，请设置 app.zine.enabled=true"));
+        }
+
+        if (apiKey == null || apiKey.isBlank()) {
+            return Mono.error(new IllegalStateException("请先配置阿里云 API Key"));
+        }
+
+        Map<String, Object> request =
+                Map.of(
+                        "model",
+                        properties.getModel(),
+                        "input",
+                        Map.of(
+                                "messages",
+                                List.of(
+                                        Map.of(
+                                                "role",
+                                                "user",
+                                                "content",
+                                                List.of(
+                                                        Map.of("image", imageDataUrl),
+                                                        Map.of("text", prompt))))),
+                        "parameters",
+                        Map.of(
+                                "prompt_extend",
+                                properties.isPromptExtend(),
+                                "watermark",
+                                properties.isWatermark(),
+                                "n",
+                                1,
+                                "size",
+                                properties.getSize()));
+
+        return webClient
+                .post()
+                .uri(properties.getEndpoint())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + apiKey)
+                .bodyValue(request)
+                .retrieve()
+                .onStatus(
+                        status -> status.isError(),
+                        response ->
+                                response.bodyToMono(String.class)
+                                        .defaultIfEmpty("无响应正文")
+                                        .map(
+                                                body ->
+                                                        new ZineProviderException(
+                                                                "图片生成服务返回 "
+                                                                        + response.statusCode()
+                                                                                .value()
+                                                                        + "："
+                                                                        + shorten(body))))
+                .bodyToMono(JsonNode.class)
+                .map(this::parseResult)
+                .doOnError(
+                        error -> log.warn("[zine] image provider failed: {}", error.getMessage()));
     }
 
     private ZineImageResult parseResult(JsonNode root) {
         JsonNode image = findImage(root.at("/output/choices/0/message/content"));
-        if (image.isMissingNode()) image = findImage(root.at("/output/results"));
-        if (image.isMissingNode() || image.asText().isBlank()) throw new ZineProviderException("图片生成服务未返回图片地址");
+
+        if (image.isMissingNode()) {
+            image = findImage(root.at("/output/results"));
+        }
+
+        if (image.isMissingNode() || image.asText().isBlank()) {
+            throw new ZineProviderException("图片生成服务未返回图片地址");
+        }
+
         JsonNode requestId = root.get("request_id");
-        return new ZineImageResult(image.asText(), requestId == null ? null : requestId.asText(),
-                com.bbb.exercise.agentdemo.runtime.client.ProviderUsage.input(root),com.bbb.exercise.agentdemo.runtime.client.ProviderUsage.output(root));
+
+        return new ZineImageResult(
+                image.asText(),
+                requestId == null ? null : requestId.asText(),
+                com.bbb.exercise.agentdemo.runtime.client.ProviderUsage.input(root),
+                com.bbb.exercise.agentdemo.runtime.client.ProviderUsage.output(root));
     }
 
     private static JsonNode findImage(JsonNode candidates) {
-        if (candidates.isArray()) for (JsonNode candidate : candidates) {
-            JsonNode image = candidate.get("image");
-            if (image != null && !image.asText().isBlank()) return image;
-            JsonNode url = candidate.get("url");
-            if (url != null && !url.asText().isBlank()) return url;
+        if (candidates.isArray()) {
+            for (JsonNode candidate : candidates) {
+                JsonNode image = candidate.get("image");
+
+                if (image != null && !image.asText().isBlank()) {
+                    return image;
+                }
+
+                JsonNode url = candidate.get("url");
+
+                if (url != null && !url.asText().isBlank()) {
+                    return url;
+                }
+            }
         }
+
         return MissingNode.getInstance();
     }
 

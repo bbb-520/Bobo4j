@@ -30,7 +30,7 @@ Thumbs.db
 *.swp
 *.bak
 
-# 部署密钥（只提交 .env.example）
+# 部署密钥（只提交无真实凭据的公开环境模板）
 .env
 deploy/.env
 secrets/
@@ -44,3 +44,6 @@ HELP.md
 *.cookies
 data/
 compose.server.local.yml
+
+# Local deployment work and credentials
+.migration/

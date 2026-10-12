@@ -28,16 +28,25 @@ public class BoboWorldController {
     private final ChatIdentityResolver identityResolver;
     private final BoboWorldService boboWorld;
 
+    // 1. 发布入口：从已成功图片任务发布作品，返回新建或复用的发布结果。
     @PostMapping("/items")
     public Mono<ResponseEntity<BoboWorldService.PublishResponse>> publish(
             @RequestBody(required = false) BoboWorldService.PublishRequest request,
             ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() ->
-                        ResponseEntity.status(HttpStatus.CREATED).body(boboWorld.publish(identity, request))))
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.status(HttpStatus.CREATED)
+                                                        .body(
+                                                                boboWorld.publish(
+                                                                        identity, request))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // 2. 浏览入口：世界列表、个人列表和详情分别交给服务层处理可见范围。
     @GetMapping("/world")
     public Mono<ResponseEntity<BoboWorldService.WorldPage>> world(
             @RequestParam(defaultValue = "24") int limit,
@@ -51,37 +60,60 @@ public class BoboWorldController {
             @RequestParam(defaultValue = "24") int limit,
             @RequestParam(required = false) String cursor,
             ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(boboWorld.mine(identity, limit, cursor))))
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.ok(
+                                                        boboWorld.mine(identity, limit, cursor))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     @GetMapping("/items/{itemId}")
     public Mono<ResponseEntity<BoboWorldService.ItemDetail>> get(
             @PathVariable String itemId, ServerWebExchange exchange) {
-        return identityResolver.resolve(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(boboWorld.get(identity, itemId))))
+        return identityResolver
+                .resolve(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () -> ResponseEntity.ok(boboWorld.get(identity, itemId))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // 3. 编辑入口：解析允许修改的字段，并要求客户端携带作品版本。
     @PatchMapping("/items/{itemId}")
     public Mono<ResponseEntity<BoboWorldService.MineItem>> patch(
             @PathVariable String itemId,
             @RequestBody(required = false) Map<String, Object> body,
             ServerWebExchange exchange) {
         BoboWorldService.PatchRequest patch = parsePatch(body);
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(boboWorld.patch(identity, itemId, patch))))
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () ->
+                                                ResponseEntity.ok(
+                                                        boboWorld.patch(identity, itemId, patch))))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // 4. 删除入口：登记软删除与后续对象清理。
     @DeleteMapping("/items/{itemId}")
-    public Mono<ResponseEntity<Void>> delete(@PathVariable String itemId, ServerWebExchange exchange) {
-        return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> {
-                    boboWorld.delete(identity, itemId);
-                    return ResponseEntity.noContent().<Void>build();
-                }))
+    public Mono<ResponseEntity<Void>> delete(
+            @PathVariable String itemId, ServerWebExchange exchange) {
+        return identityResolver
+                .resolveRequired(exchange)
+                .flatMap(
+                        identity ->
+                                Mono.fromCallable(
+                                        () -> {
+                                            boboWorld.delete(identity, itemId);
+                                            return ResponseEntity.noContent().<Void>build();
+                                        }))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -89,24 +121,37 @@ public class BoboWorldController {
         if (body == null || !(body.get("version") instanceof Number versionNumber)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "version 为必填数字");
         }
+
         int version = versionNumber.intValue();
+
         if (version < 1 || versionNumber.doubleValue() != version) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "version 无效");
         }
+
         boolean captionProvided = body.containsKey("caption");
         Object rawCaption = body.get("caption");
+
         if (captionProvided && rawCaption != null && !(rawCaption instanceof String)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "caption 必须是字符串或 null");
         }
+
         Object rawAnonymous = body.get("anonymous");
+
         if (rawAnonymous != null && !(rawAnonymous instanceof Boolean)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "anonymous 必须是布尔值");
         }
+
         Object rawVisibility = body.get("visibility");
+
         if (rawVisibility != null && !(rawVisibility instanceof String)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "visibility 必须是字符串");
         }
-        return new BoboWorldService.PatchRequest(captionProvided, (String) rawCaption,
-                (Boolean) rawAnonymous, (String) rawVisibility, version);
+
+        return new BoboWorldService.PatchRequest(
+                captionProvided,
+                (String) rawCaption,
+                (Boolean) rawAnonymous,
+                (String) rawVisibility,
+                version);
     }
 }

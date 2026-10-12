@@ -25,37 +25,44 @@ import java.util.concurrent.ConcurrentHashMap;
 final class ModuleClasses {
     private static final Map<String, URLClassLoader> LOADERS = new ConcurrentHashMap<>();
 
-    private ModuleClasses() {
-    }
+    private ModuleClasses() {}
 
     /** 加载模块自己的类；模块未编译时给出可执行的修复提示。 */
     static Class<?> load(String module, String className) {
         try {
             return Class.forName(className, true, loaderFor(module));
         } catch (ClassNotFoundException e) {
-            throw new IllegalStateException("模块 " + module + " 中不存在类 " + className
-                    + "（门禁依赖的类被删除或改名了？）", e);
+            throw new IllegalStateException(
+                    "模块 " + module + " 中不存在类 " + className + "（门禁依赖的类被删除或改名了？）", e);
         }
     }
 
     /** 模块已编译产物的目录（ArchUnit 的 {@code importPath} 也用它）。 */
     static Path classesOf(String module) {
         Path classes = Repository.resolve(module + "/target/classes");
+
         if (!Files.isDirectory(classes)) {
-            throw new IllegalStateException(module + " 还没有编译产物（" + Repository.relative(classes)
-                    + "）。请带上 -am 运行，例如：mvn -pl agent-architecture-tests -am test");
+            throw new IllegalStateException(
+                    module
+                            + " 还没有编译产物（"
+                            + Repository.relative(classes)
+                            + "）。请带上 -am 运行，例如：mvn -pl agent-architecture-tests -am test");
         }
+
         return classes;
     }
 
     private static URLClassLoader loaderFor(String module) {
-        return LOADERS.computeIfAbsent(module, key -> {
-            try {
-                return new URLClassLoader(new URL[]{classesOf(module).toUri().toURL()},
-                        ModuleClasses.class.getClassLoader());
-            } catch (MalformedURLException e) {
-                throw new IllegalStateException("无法为 " + module + " 构造类加载器", e);
-            }
-        });
+        return LOADERS.computeIfAbsent(
+                module,
+                key -> {
+                    try {
+                        return new URLClassLoader(
+                                new URL[] {classesOf(module).toUri().toURL()},
+                                ModuleClasses.class.getClassLoader());
+                    } catch (MalformedURLException e) {
+                        throw new IllegalStateException("无法为 " + module + " 构造类加载器", e);
+                    }
+                });
     }
 }

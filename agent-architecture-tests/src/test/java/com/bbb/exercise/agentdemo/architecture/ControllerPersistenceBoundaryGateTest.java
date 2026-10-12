@@ -26,21 +26,23 @@ class ControllerPersistenceBoundaryGateTest {
         List<String> violations = ArchitectureState.controllersDependingOnPersistence();
 
         assertThat(violations)
-                .as("Web 层不能直接拿持久化能力。请把数据访问下移到 application/domain 层的组件，"
-                        + "Controller 只依赖 Service（格式：模块|模块内路径|命中原因）")
+                .as(
+                        "Web 层不能直接拿持久化能力。请把数据访问下移到 application/domain 层的组件，"
+                                + "Controller 只依赖 Service（格式：模块|模块内路径|命中原因）")
                 .isEmpty();
     }
 
     @Test
     @DisplayName("门禁确实扫到了 Web 层类（避免规则空跑）")
     void gateActuallyScannedWebLayerClasses() {
-        long webLayerClasses = Repository.javaSourcesOfAllModules(false).stream()
-                .filter(file -> Repository.text(file).contains("@RestController")
-                        || Repository.text(file).contains("@Controller"))
-                .count();
+        long webLayerClasses =
+                Repository.javaSourcesOfAllModules(false).stream()
+                        .filter(
+                                file ->
+                                        Repository.text(file).contains("@RestController")
+                                                || Repository.text(file).contains("@Controller"))
+                        .count();
 
-        assertThat(webLayerClasses)
-                .as("一个 Controller 都没扫到，说明源码枚举范围出错，这条门禁等于没跑")
-                .isGreaterThan(5);
+        assertThat(webLayerClasses).as("一个 Controller 都没扫到，说明源码枚举范围出错，这条门禁等于没跑").isGreaterThan(5);
     }
 }

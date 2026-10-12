@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/** 聊天入口请求，携带用户问题、会话标识和已上传的图片附件。 */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

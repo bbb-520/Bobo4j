@@ -12,19 +12,19 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @EnabledIfEnvironmentVariable(named = "RUN_INFRASTRUCTURE_TESTS", matches = "true")
 class InfrastructureContainersTest {
-    @Container
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
+    @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
 
     @Container
-    static final GenericContainer<?> REDIS = new GenericContainer<>("redis/redis-stack-server:7.4.0-v8")
-            .withExposedPorts(6379);
+    static final GenericContainer<?> REDIS =
+            new GenericContainer<>("redis/redis-stack-server:7.4.0-v8").withExposedPorts(6379);
 
     @Container
     /** LocalStack's S3 endpoint gives the test suite an OSS-compatible object store. */
-    static final GenericContainer<?> OSS = new GenericContainer<>("localstack/localstack:3.8")
-            .withEnv("SERVICES", "s3")
-            .withEnv("DEFAULT_REGION", "us-east-1")
-            .withExposedPorts(4566);
+    static final GenericContainer<?> OSS =
+            new GenericContainer<>("localstack/localstack:3.8")
+                    .withEnv("SERVICES", "s3")
+                    .withEnv("DEFAULT_REGION", "us-east-1")
+                    .withExposedPorts(4566);
 
     @Test
     void infrastructureContainersExposeUsableEndpoints() {

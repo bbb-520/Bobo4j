@@ -38,9 +38,7 @@ class OwnerScopedStateTransitionGateTest {
     void onlyJdbcTemplateConstructorIsAllowed() {
         Constructor<?>[] constructors = type(SERVICE_CLASS).getDeclaredConstructors();
 
-        assertThat(constructors)
-                .as("无参构造意味着会出现内存回退实现，必须不存在")
-                .hasSize(1);
+        assertThat(constructors).as("无参构造意味着会出现内存回退实现，必须不存在").hasSize(1);
         assertThat(constructors[0].getParameterTypes())
                 .as("唯一构造方法必须只接收 JdbcTemplate")
                 .containsExactly(JdbcTemplate.class);
@@ -49,24 +47,30 @@ class OwnerScopedStateTransitionGateTest {
     @Test
     @DisplayName("以 id 为入参的公开方法必须同时要求 owner")
     void everyIdTakingPublicMethodAlsoRequiresOwner() {
-        List<String> offenders = Arrays.stream(type(SERVICE_CLASS).getDeclaredMethods())
-                .filter(method -> Modifier.isPublic(method.getModifiers()))
-                .filter(method -> !method.isSynthetic())
-                .filter(method -> Arrays.asList(method.getParameterTypes()).contains(UUID.class))
-                .filter(method -> !Arrays.asList(method.getParameterTypes()).contains(String.class))
-                .map(Method::getName)
-                .toList();
+        List<String> offenders =
+                Arrays.stream(type(SERVICE_CLASS).getDeclaredMethods())
+                        .filter(method -> Modifier.isPublic(method.getModifiers()))
+                        .filter(method -> !method.isSynthetic())
+                        .filter(
+                                method ->
+                                        Arrays.asList(method.getParameterTypes())
+                                                .contains(UUID.class))
+                        .filter(
+                                method ->
+                                        !Arrays.asList(method.getParameterTypes())
+                                                .contains(String.class))
+                        .map(Method::getName)
+                        .toList();
 
-        assertThat(offenders)
-                .as("这些方法只凭 id 就能读写 AgentRun，缺少 owner 条件")
-                .isEmpty();
+        assertThat(offenders).as("这些方法只凭 id 就能读写 AgentRun，缺少 owner 条件").isEmpty();
     }
 
     @Test
     @DisplayName("状态写入 SQL 同时带 owner 与 version 条件，并且自增 version")
     void stateUpdateIsGuardedByOwnerAndVersion() {
-        String source = normalizedSource(
-                "agent-orchestrator-service/src/main/java/com/bbb/exercise/agentdemo/orchestrator/service/AgentWorkflowService.java");
+        String source =
+                normalizedSource(
+                        "agent-orchestrator-service/src/main/java/com/bbb/exercise/agentdemo/orchestrator/service/AgentWorkflowService.java");
 
         assertThat(source).as("内存回退实现必须已经删除").doesNotContain("ConcurrentHashMap");
 
@@ -89,9 +93,11 @@ class OwnerScopedStateTransitionGateTest {
      */
     private static String statementStartingWith(String source, String prefix) {
         int start = source.indexOf(prefix);
+
         assertThat(start).as("源码里必须存在以「%s」开头的 SQL 语句", prefix).isGreaterThanOrEqualTo(0);
 
         int end = source.indexOf('"', start);
+
         return end > start ? source.substring(start, end) : source.substring(start);
     }
 
@@ -99,11 +105,13 @@ class OwnerScopedStateTransitionGateTest {
     @DisplayName("AgentRun 必须带 version 字段，乐观锁才有依据")
     void agentRunCarriesVersion() {
         Class<?> run = type(RUN_CLASS);
+
         assertThat(run.isRecord()).as("AgentRun 应为 record").isTrue();
 
-        Optional<RecordComponent> version = Arrays.stream(run.getRecordComponents())
-                .filter(component -> "version".equals(component.getName()))
-                .findFirst();
+        Optional<RecordComponent> version =
+                Arrays.stream(run.getRecordComponents())
+                        .filter(component -> "version".equals(component.getName()))
+                        .findFirst();
 
         assertThat(version).as("缺少 version 组件时 user_id + version 双条件无法成立").isPresent();
         assertThat(version.orElseThrow().getType()).isEqualTo(long.class);
@@ -116,14 +124,35 @@ class OwnerScopedStateTransitionGateTest {
         Object service = newService(new JdbcTemplate());
         UUID id = UUID.randomUUID();
 
-        assertThatThrownBy(() -> invoke(service, "get", new Class<?>[]{UUID.class, String.class}, id, null))
+        assertThatThrownBy(
+                        () ->
+                                invoke(
+                                        service,
+                                        "get",
+                                        new Class<?>[] {UUID.class, String.class},
+                                        id,
+                                        null))
                 .as("get(id, null) 必须先被拒绝")
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> invoke(service, "get", new Class<?>[]{UUID.class, String.class}, id, "anonymous"))
+        assertThatThrownBy(
+                        () ->
+                                invoke(
+                                        service,
+                                        "get",
+                                        new Class<?>[] {UUID.class, String.class},
+                                        id,
+                                        "anonymous"))
                 .as("anonymous 不是有效 owner")
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> invoke(service, "advance",
-                new Class<?>[]{UUID.class, statusClass(), String.class}, id, reviewing(), null))
+        assertThatThrownBy(
+                        () ->
+                                invoke(
+                                        service,
+                                        "advance",
+                                        new Class<?>[] {UUID.class, statusClass(), String.class},
+                                        id,
+                                        reviewing(),
+                                        null))
                 .as("advance(id, next, null) 必须先被拒绝")
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -136,15 +165,18 @@ class OwnerScopedStateTransitionGateTest {
         }
     }
 
-    private static Object invoke(Object target, String name, Class<?>[] parameterTypes, Object... arguments) {
+    private static Object invoke(
+            Object target, String name, Class<?>[] parameterTypes, Object... arguments) {
         try {
             return target.getClass().getMethod(name, parameterTypes).invoke(target, arguments);
         } catch (java.lang.reflect.InvocationTargetException e) {
             // 被测方法主动抛出的异常要原样透出，否则断言看到的是反射包装异常。
             Throwable cause = e.getCause();
+
             if (cause instanceof RuntimeException runtime) {
                 throw runtime;
             }
+
             throw new IllegalStateException("调用 " + name + " 失败", cause);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("调用 " + name + " 失败", e);

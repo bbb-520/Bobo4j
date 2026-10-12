@@ -38,58 +38,81 @@ final class FakeAgentRunJdbc {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
 
     FakeAgentRunJdbc() {
-        // INSERT INTO agent_run(id,workflow,user_id,input_text,status,version,created_at,updated_at)
+        // INSERT INTO
+        // agent_run(id,workflow,user_id,input_text,status,version,created_at,updated_at)
         when(jdbc.update(anyString(), any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    sqlLog.add((String) invocation.getArgument(0));
-                    String id = (String) invocation.getArgument(1);
-                    store.put(id, new AgentRun(UUID.fromString(id),
-                            (String) invocation.getArgument(2),
-                            (String) invocation.getArgument(3),
-                            (String) invocation.getArgument(4),
-                            RunStatus.valueOf((String) invocation.getArgument(5)),
-                            ((Number) invocation.getArgument(6)).longValue(),
-                            (Instant) invocation.getArgument(7),
-                            (Instant) invocation.getArgument(8)));
-                    return 1;
-                });
+                .thenAnswer(
+                        invocation -> {
+                            sqlLog.add((String) invocation.getArgument(0));
+                            String id = (String) invocation.getArgument(1);
+
+                            store.put(
+                                    id,
+                                    new AgentRun(
+                                            UUID.fromString(id),
+                                            (String) invocation.getArgument(2),
+                                            (String) invocation.getArgument(3),
+                                            (String) invocation.getArgument(4),
+                                            RunStatus.valueOf((String) invocation.getArgument(5)),
+                                            ((Number) invocation.getArgument(6)).longValue(),
+                                            (Instant) invocation.getArgument(7),
+                                            (Instant) invocation.getArgument(8)));
+
+                            return 1;
+                        });
 
         // UPDATE agent_run SET status=?,version=version+1,updated_at=?
         //   WHERE id=? AND user_id=? AND version=?
         when(jdbc.update(anyString(), any(), any(), any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    sqlLog.add((String) invocation.getArgument(0));
-                    if (versionedUpdateFails.getAndSet(false)) {
-                        return 0;
-                    }
-                    String id = (String) invocation.getArgument(3);
-                    String userId = (String) invocation.getArgument(4);
-                    long expectedVersion = ((Number) invocation.getArgument(5)).longValue();
-                    AgentRun current = store.get(id);
-                    if (current == null || !current.userId().equals(userId)
-                            || current.version() != expectedVersion) {
-                        return 0;
-                    }
-                    store.put(id, new AgentRun(current.id(), current.workflow(), current.userId(), current.input(),
-                            RunStatus.valueOf((String) invocation.getArgument(1)),
-                            current.version() + 1,
-                            current.createdAt(),
-                            (Instant) invocation.getArgument(2)));
-                    return 1;
-                });
+                .thenAnswer(
+                        invocation -> {
+                            sqlLog.add((String) invocation.getArgument(0));
+
+                            if (versionedUpdateFails.getAndSet(false)) {
+                                return 0;
+                            }
+
+                            String id = (String) invocation.getArgument(3);
+                            String userId = (String) invocation.getArgument(4);
+                            long expectedVersion = ((Number) invocation.getArgument(5)).longValue();
+                            AgentRun current = store.get(id);
+
+                            if (current == null
+                                    || !current.userId().equals(userId)
+                                    || current.version() != expectedVersion) {
+                                return 0;
+                            }
+
+                            store.put(
+                                    id,
+                                    new AgentRun(
+                                            current.id(),
+                                            current.workflow(),
+                                            current.userId(),
+                                            current.input(),
+                                            RunStatus.valueOf((String) invocation.getArgument(1)),
+                                            current.version() + 1,
+                                            current.createdAt(),
+                                            (Instant) invocation.getArgument(2)));
+
+                            return 1;
+                        });
 
         // SELECT ... FROM agent_run WHERE id=? AND user_id=?
         when(jdbc.query(anyString(), any(RowMapper.class), any(), any()))
-                .thenAnswer(invocation -> {
-                    String id = (String) invocation.getArgument(2);
-                    String userId = (String) invocation.getArgument(3);
-                    AgentRun run = store.get(id);
-                    List<AgentRun> rows = new ArrayList<>();
-                    if (run != null && run.userId().equals(userId)) {
-                        rows.add(run);
-                    }
-                    return rows;
-                });
+                .thenAnswer(
+                        invocation -> {
+                            String id = (String) invocation.getArgument(2);
+                            String userId = (String) invocation.getArgument(3);
+                            AgentRun run = store.get(id);
+                            List<AgentRun> rows = new ArrayList<>();
+
+                            if (run != null && run.userId().equals(userId)) {
+                                rows.add(run);
+                            }
+
+                            return rows;
+                        });
     }
 
     JdbcTemplate jdbc() {

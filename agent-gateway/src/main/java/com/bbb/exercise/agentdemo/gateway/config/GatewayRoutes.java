@@ -19,11 +19,20 @@ public class GatewayRoutes {
     public static final String ORCHESTRATOR_SERVICE_ID = "agent-orchestrator-service";
     public static final String RAG_SERVICE_ID = "agent-rag-service";
 
-    public static final String[] AUTH_PATHS = {"/api/auth/**", "/api/settings/keys/**", "/api/settings/models/**", "/api/billing/**", "/api/payments/**"};
+    public static final String[] AUTH_PATHS = {
+        "/api/auth/**",
+        "/api/admin/**",
+        "/api/settings/keys/**",
+        "/api/settings/models/**",
+        "/api/billing/**",
+        "/api/payments/**"
+    };
     public static final String[] CHAT_PATHS = {"/api/chat/**", "/api/settings/visual-memory/**"};
     public static final String[] MEDIA_PATHS = {"/api/image-assets/**", "/api/image-jobs/**"};
-    public static final String[] CONTENT_PATHS = {"/api/bobo/**", "/api/zine/**"};
-    public static final String[] RAG_PATHS = {"/api/documents/**", "/api/document-conversations/**"};
+    public static final String[] CONTENT_PATHS = {"/api/bobo/**", "/api/zine/**", "/api/photo-archive/**"};
+    public static final String[] RAG_PATHS = {
+        "/api/documents/**", "/api/document-conversations/**"
+    };
 
     @Bean
     RouteLocator agentRoutes(RouteLocatorBuilder builder) {
@@ -32,7 +41,11 @@ public class GatewayRoutes {
                 .route("chat", r -> r.path(CHAT_PATHS).uri(lb(CHAT_SERVICE_ID)))
                 .route("images", r -> r.path(MEDIA_PATHS).uri(lb(MEDIA_SERVICE_ID)))
                 .route("content", r -> r.path(CONTENT_PATHS).uri(lb(CONTENT_SERVICE_ID)))
-                .route("orchestrator", r -> r.path("/api/agent-runs/**", "/api/agent-executions/**").uri(lb(ORCHESTRATOR_SERVICE_ID)))
+                .route(
+                        "orchestrator",
+                        r ->
+                                r.path("/api/agent-runs/**", "/api/agent-executions/**")
+                                        .uri(lb(ORCHESTRATOR_SERVICE_ID)))
                 .route("documents", r -> r.path(RAG_PATHS).uri(lb(RAG_SERVICE_ID)))
                 .build();
     }

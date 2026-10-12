@@ -23,25 +23,25 @@ final class Repository {
     static final String ROOT_PACKAGE_PATH = "com/bbb/exercise/agentdemo1_0/";
 
     /** 全部 Maven 业务模块（不含本门禁模块本身）。 */
-    static final List<String> MODULES = List.of(
-            "agent-common",
-            "agent-api",
-            "agent-runtime",
-            "agent-gateway",
-            "agent-auth-service",
-            "agent-chat-service",
-            "agent-rag-service",
-            "agent-media-service",
-            "agent-content-service",
-            "agent-orchestrator-service");
+    static final List<String> MODULES =
+            List.of(
+                    "agent-common",
+                    "agent-api",
+                    "agent-runtime",
+                    "agent-gateway",
+                    "agent-auth-service",
+                    "agent-chat-service",
+                    "agent-rag-service",
+                    "agent-media-service",
+                    "agent-content-service",
+                    "agent-orchestrator-service");
 
     /** 生产模块必须遵守目标态边界。 */
     static final List<String> PRODUCTION_MODULES = MODULES;
 
     static final Path ROOT = locateRoot();
 
-    private Repository() {
-    }
+    private Repository() {}
 
     static String text(Path file) {
         try {
@@ -54,9 +54,11 @@ final class Repository {
     /** 某个模块的 Java 源码文件（递归）。目录不存在时返回空列表而不是报错。 */
     static List<Path> javaSources(String module, boolean testSources) {
         Path base = ROOT.resolve(module).resolve(testSources ? "src/test/java" : "src/main/java");
+
         if (!Files.isDirectory(base)) {
             return List.of();
         }
+
         try (Stream<Path> stream = Files.walk(base)) {
             return stream.filter(path -> path.getFileName().toString().endsWith(".java"))
                     .sorted()
@@ -67,7 +69,9 @@ final class Repository {
     }
 
     static List<Path> javaSourcesOfAllModules(boolean testSources) {
-        return MODULES.stream().flatMap(module -> javaSources(module, testSources).stream()).toList();
+        return MODULES.stream()
+                .flatMap(module -> javaSources(module, testSources).stream())
+                .toList();
     }
 
     /** 仓库相对路径，统一用 {@code /} 分隔，保证 Windows / Linux 上基线内容一致。 */
@@ -85,6 +89,7 @@ final class Repository {
     static String sourcePathWithinModule(String relativePath, boolean testSources) {
         String marker = testSources ? "/src/test/java/" : "/src/main/java/";
         int index = relativePath.indexOf(marker);
+
         return index < 0 ? null : relativePath.substring(index + marker.length());
     }
 
@@ -103,13 +108,18 @@ final class Repository {
 
     private static Path locateRoot() {
         Path cursor = Path.of("").toAbsolutePath().normalize();
+
         while (cursor != null) {
             Path pom = cursor.resolve("pom.xml");
-            if (Files.isRegularFile(pom) && text(pom).contains("<artifactId>BoboWorld4J</artifactId>")) {
+
+            if (Files.isRegularFile(pom)
+                    && text(pom).contains("<artifactId>BoboWorld4J</artifactId>")) {
                 return cursor;
             }
+
             cursor = cursor.getParent();
         }
+
         throw new IllegalStateException(
                 "未找到聚合根 pom.xml（artifactId=BoboWorld4J）。请在 BoboWorld4J 工作区内运行本模块的测试。");
     }
