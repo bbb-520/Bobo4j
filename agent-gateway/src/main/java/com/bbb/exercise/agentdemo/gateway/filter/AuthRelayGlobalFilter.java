@@ -99,7 +99,6 @@ public class AuthRelayGlobalFilter implements GlobalFilter, Ordered {
                 || "/api/auth/email/code".equals(path)
                 || "/api/auth/email/login".equals(path)
                 || "/api/payments/callback/alipay".equals(path)
-                || "/api/payments/callback/wechat".equals(path)
                 || "/api/auth/logout".equals(path)
                 || "/api/auth/me".equals(path);
     }

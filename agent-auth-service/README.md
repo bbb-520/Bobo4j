@@ -16,7 +16,7 @@ Auth 是账户、安全授权、平台模型配置、钱包计费和支付的权
 | [rbac](src/main/java/com/bbb/exercise/agentdemo/auth/rbac) | 角色权限、管理员初始化、禁用用户与审计 |
 | [PlatformModels](src/main/java/com/bbb/exercise/agentdemo/auth/PlatformModels.java) / [model](src/main/java/com/bbb/exercise/agentdemo/auth/model) | 按能力返回平台模型配置 |
 | [billing](src/main/java/com/bbb/exercise/agentdemo/auth/billing) | 余额、Token 配额、调用组、结算、对账、退款和充值订单 |
-| [payment](src/main/java/com/bbb/exercise/agentdemo/auth/payment) | 支付宝、微信 Native API v3 接入与验签 |
+| [payment](src/main/java/com/bbb/exercise/agentdemo/auth/payment) | 支付宝 SDK 接入、验签、退款与资金对账 |
 | [InternalAuthController](src/main/java/com/bbb/exercise/agentdemo/authservice/InternalAuthController.java) / [InternalBillingController](src/main/java/com/bbb/exercise/agentdemo/authservice/InternalBillingController.java) | 受签名和调用者边界保护的内部协议 |
 
 ## 3. 账户和会话如何实现
@@ -82,20 +82,20 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --rbac
 
 generation 和参数哈希阻止旧尝试或改参请求覆盖现有调用。免费 Token 由 `TokenAllowance` 参与计算；已派发但结果未知的尝试保留预留 / 待对账状态，不能靠重启清零或重新付费重试。同组平台故障预算、时间窗口额度和未解决尝试上限用于限制异常成本。
 
-管理员可查询消费和调用组并进行对账 / 站内退款。具体允许的操作及状态以 Billing Controller 和 Service 的校验为准，站内退款并不等于向支付宝 / 微信发起原路退款。
+管理员可查询消费和调用组并进行对账 / 站内退款。具体允许的操作及状态以 Billing Controller 和 Service 的校验为准，站内退款并不等于向支付宝发起原路退款。
 
 ## 7. 充值支付流程
 
 1. 已登录用户发送 `POST /api/payments/orders`，带唯一 `Idempotency-Key`，例如 `{"channel":"ALIPAY","amountCents":100}`。
 2. `PaymentService` 创建幂等订单，并用预下单租约减少并发重复下单。
 3. `PaymentGateway` 获取二维码地址；客户端轮询订单状态。
-4. 支付渠道回调到 `/api/payments/callback/alipay` 或 `/wechat`。
+4. 支付渠道回调到 `/api/payments/callback/alipay`。
 5. 后端验证签名、商户、金额、币种和交易状态，事务内一次入账。支付宝订单查询及后台任务可查单补偿丢失的回调；超时订单先向渠道关单，未知结果保留待核对。
 6. 持有 `billing:refund` 的管理员可通过 `/api/payments/admin/orders/{id}/refund` 发起一次全额支付宝原路退款。先扣回未消费、未预留的钱包余额，再以持久化退款 ID 调用渠道；未知结果持续恢复，确认成功后标记 `REFUNDED`。
 
 配置预检、0.01 元验收及退款说明见 [支付宝支付联调](../docs/alipay-payment-integration.md)。
 
-微信使用 Native API v3 和平台公钥模式；支付宝使用 SDK 预创建。支付默认关闭，需商户配置和可到达的通知地址。回调免浏览器登录 / CSRF，但必须通过支付协议校验。
+仅使用支付宝 SDK 预创建；微信支付链路已移除。支付默认关闭，需商户配置和可到达的通知地址。回调免浏览器登录 / CSRF，但必须通过支付协议校验。
 
 ## 8. 主要接口
 
@@ -124,7 +124,7 @@ generation 和参数哈希阻止旧尝试或改参请求覆盖现有调用。免
 | 钱包 / 充值 | `billing_wallet`、`model_usage`、`payment_order`、`payment_refund`、`usage_reconciliation` |
 | 调用组 | `model_call_group`、`model_call_attempt`、尝试历史、故障预算和对账表 |
 
-关键环境配置包括：`MYSQL_*`、`NACOS_*`、内部签名 / Cookie 配置；`SMTP_*`、`AUTH_OTP_SECRET`（至少 32 字符）；`OPENAI_API_KEY`、`QWEN_API_KEY`、各 `PLATFORM_*` 模型参数；`PLATFORM_RERANK_BASE_URL` 须填实际区域 / 工作空间地址；`BILLING_*`；`PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`、`WECHAT_*`。完整默认值见模块 YAML，部署覆盖见 [infra](../infra/README.md)。
+关键环境配置包括：`MYSQL_*`、`NACOS_*`、内部签名 / Cookie 配置；`SMTP_*`、`AUTH_OTP_SECRET`（至少 32 字符）；`OPENAI_API_KEY`、`QWEN_API_KEY`、各 `PLATFORM_*` 模型参数；`PLATFORM_RERANK_BASE_URL` 须填实际区域 / 工作空间地址；`BILLING_*`；`PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`。完整默认值见模块 YAML，部署覆盖见 [infra](../infra/README.md)。
 
 ## 10. 构建、测试和排错
 
@@ -143,3 +143,5 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar
 - 402 / 429：额度、余额、模型准入或频率限制；结合响应和消费状态判断。
 - SMTP 发送失败：检查 SMTP SSL / STARTTLS、账号授权码、发件人和 OTP secret。
 - 支付未入账：查看订单、渠道通知验签和金额核对结果，勿手工伪造成功状态。
+
+支付稳定性、退款 REVIEW 人工终态、二维码刷新、V9 迁移和管理员对账接口见[根 README](../README.md#支付链路稳定性更新2026-10-12)。

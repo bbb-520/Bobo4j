@@ -26,8 +26,7 @@ public final class PermissionPolicy {
                                 "/api/auth/register",
                                 "/api/auth/email/code",
                                 "/api/auth/email/login",
-                                "/api/payments/callback/alipay",
-                                "/api/payments/callback/wechat")
+                                "/api/payments/callback/alipay")
                         .contains(path);
     }
 
@@ -79,10 +78,12 @@ public final class PermissionPolicy {
             return "payment:manage";
         }
 
-        if (path.matches("/api/payments/admin/orders/[^/]+/refund")
+        if (path.matches("/api/payments/admin/orders/[^/]+/refund(?:/resolve)?")
                 && Set.of("GET", "POST").contains(method)) {
             return "billing:refund";
         }
+
+        if ("GET".equals(method) && (path.equals("/api/payments/admin/reconciliation")||path.matches("/api/payments/admin/orders/[^/]+/audit"))) return "billing:reconcile";
 
         if (path.equals("/api/auth/email/bind")) {
             return "profile:manage";

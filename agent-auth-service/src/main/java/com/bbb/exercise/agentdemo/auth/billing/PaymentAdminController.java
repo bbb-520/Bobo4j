@@ -23,8 +23,12 @@ public class PaymentAdminController {
         this.auth=auth; this.identities=identities; this.rbac=rbac; this.recovery=recovery; this.refunds=refunds;
     }
     private Mono<String> operator(ServerWebExchange exchange) {
+        return operator(exchange,false);
+    }
+    private Mono<String> operator(ServerWebExchange exchange,boolean reconciliation) {
         return identities.resolveRequired(exchange).flatMap(identity -> Mono.fromCallable(() -> {
             rbac.require(auth.requireUserId(identity),"billing:refund");
+            if(reconciliation)rbac.require(auth.requireUserId(identity),"billing:reconcile");
             return auth.publicUserId(identity);
         }).subscribeOn(Schedulers.boundedElastic()));
     }
@@ -40,4 +44,11 @@ public class PaymentAdminController {
                 .subscribeOn(Schedulers.boundedElastic()));
     }
     public record Reason(String reason) {}
+
+    @PostMapping("/resolve")
+    public Mono<PaymentRefundService.Refund> resolve(@PathVariable String id,@RequestBody Resolution body,ServerWebExchange exchange) {
+        return operator(exchange,true).flatMap(actor -> Mono.fromCallable(() -> refunds.resolve(id,actor,body.outcome(),body.reason(),body.evidenceReference()))
+                .subscribeOn(Schedulers.boundedElastic()));
+    }
+    public record Resolution(String outcome,String reason,String evidenceReference) {}
 }

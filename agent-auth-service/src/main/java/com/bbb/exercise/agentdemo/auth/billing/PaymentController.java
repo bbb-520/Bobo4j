@@ -70,6 +70,8 @@ public class PaymentController {
                                                                 lease,
                                                                 gateway.prepay(order));
                                                         return orders.get(user, order.id());
+                                                    } catch(RuntimeException failure) {
+                                                        orders.prepayFailed(user,order.id(),lease,failure);throw failure;
                                                     } finally {
                                                         orders.releasePrepay(
                                                                 user, order.id(), lease);
@@ -87,6 +89,22 @@ public class PaymentController {
                         i ->
                                 Mono.fromCallable(() -> recovery.refresh(auth.publicUserId(i), id))
                                         .subscribeOn(Schedulers.boundedElastic()));
+    }
+
+    /** Refresh the same owned order; old QR is retained until a new response is safely persisted. */
+    @PostMapping("/orders/{id}/qr")
+    public Mono<PaymentService.Order> refreshQr(@PathVariable String id,ServerWebExchange exchange) {
+        return identities.resolveRequired(exchange).flatMap(identity -> Mono.fromCallable(() -> {
+            String user=auth.publicUserId(identity);
+            var order=orders.get(user,id);
+            gateway.requireEnabled(order.channel());
+            String lease=orders.acquirePrepay(user,id,true);
+            try {
+                orders.qr(user,id,lease,gateway.prepay(order));
+                return orders.get(user,id);
+            } catch(RuntimeException failure) { orders.prepayFailed(user,id,lease,failure);throw failure; }
+            finally { orders.releasePrepay(user,id,lease); }
+        }).subscribeOn(Schedulers.boundedElastic()));
     }
 
     // 2. 支付宝回调：交由渠道网关验签和核对交易信息，再执行入账。
@@ -116,17 +134,6 @@ public class PaymentController {
                                                     return "success";
                                                 })
                                         .subscribeOn(Schedulers.boundedElastic()));
-    }
-
-    // 2.1. 微信回调：验签、解密通知后复用订单入账流程。
-    @PostMapping(value = "/callback/wechat", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<ResponseEntity<Void>> wechat(@RequestBody String raw, ServerWebExchange exchange) {
-        return Mono.fromCallable(
-                        () -> {
-                            gateway.wechatNotify(exchange.getRequest().getHeaders(), raw);
-                            return ResponseEntity.noContent().<Void>build();
-                        })
-                .subscribeOn(Schedulers.boundedElastic());
     }
 
     /** 充值订单创建请求，指定支付渠道及以分为单位的充值金额。 */

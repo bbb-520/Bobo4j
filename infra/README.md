@@ -36,7 +36,7 @@ MySQL、Redis、Milvus、Nacos 和 Prometheus 使用命名卷。Milvus 使用嵌
 - `OPENAI_API_KEY`、`QWEN_API_KEY`、`PLATFORM_*`：Auth 管理的平台模型配置，Rerank 还需实际区域 / 工作空间 URL。
 - `SMTP_*`、`AUTH_OTP_SECRET`：QQ 邮箱验证码；注册流程需要可用邮件服务。
 - `OSS_ENABLED`、`ALIYUN_OSS_*`：图片资产、图片 Worker 与作品发布。
-- `PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`、`WECHAT_*`：可选支付渠道；私钥文件按 Compose 挂载到 Auth。
+- `PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`：支付宝支付；私钥文件按 Compose 挂载到 Auth。
 
 不把真实配置写入本目录可公开文件。默认示例密码和加密配置用于说明参数，部署时应使用实际配置。内部签名密钥格式见 [Common](../agent-common/README.md)。
 

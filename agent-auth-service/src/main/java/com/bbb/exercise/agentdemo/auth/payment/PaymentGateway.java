@@ -3,28 +3,16 @@ package com.bbb.exercise.agentdemo.auth.payment;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.bbb.exercise.agentdemo.auth.billing.BillingException;
 import com.bbb.exercise.agentdemo.auth.billing.PaymentService;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.ZoneId;
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-/** Alipay face-to-face and WeChat Native integrations, with verified server notifications only. */
+/** Alipay face-to-face integration, with verified server notifications only. */
 @Component
 public class PaymentGateway {
     private final PaymentProperties properties;
     private final PaymentService orders;
     private final AlipayTradeGateway alipay;
-    private final JsonMapper json = JsonMapper.builder().build();
-    private final WebClient wechat =
-            WebClient.builder().baseUrl("https://api.mch.weixin.qq.com").build();
 
     public PaymentGateway(PaymentProperties properties, PaymentService orders, AlipayTradeGateway alipay) {
         this.properties = properties;
@@ -33,10 +21,8 @@ public class PaymentGateway {
     }
 
     public void requireEnabled(String channel) {
-        boolean enabled =
-                "ALIPAY".equals(channel)
-                        ? properties.getAlipay().isEnabled()
-                        : "WECHAT".equals(channel) && properties.getWechat().isEnabled();
+        if (!"ALIPAY".equals(channel)) throw new BillingException(400,"仅支持支付宝支付");
+        boolean enabled = properties.getAlipay().isEnabled();
 
         if (!enabled) {
             throw new BillingException(503, "该支付渠道尚未配置");
@@ -47,11 +33,11 @@ public class PaymentGateway {
         }
     }
 
-    // 1. 渠道预下单：按订单渠道选择支付宝或微信协议。
+    // 1. 渠道预下单：仅使用支付宝协议。
     public String prepay(PaymentService.Order order) {
         requireEnabled(order.channel());
         // Expiry and the prepay lease are validated by PaymentService against the database clock.
-        return "ALIPAY".equals(order.channel()) ? alipay.prepay(order) : wechatPrepay(order);
+        return alipay.prepay(order);
     }
 
     // 2. 支付宝通知：验证签名和交易归属后，仅接受符合条件的支付结果。
@@ -84,9 +70,17 @@ public class PaymentGateway {
 
             long cents =
                     new BigDecimal(fields.get("total_amount")).movePointRight(2).longValueExact();
-
-            orders.credit(
-                    fields.get("out_trade_no"), "ALIPAY", fields.get("trade_no"), cents, "CNY");
+            var order=orders.find(fields.get("out_trade_no"));
+            if(!"ALIPAY".equals(order.channel())||cents!=order.amountCents()||fields.get("trans_currency")!=null&&!"CNY".equals(fields.get("trans_currency")))
+                throw new BillingException(400,"支付宝通知渠道、金额或币种不匹配");
+            Long receipt=amount(fields.get("receipt_amount")),buyer=amount(fields.get("buyer_pay_amount")),invoice=amount(fields.get("invoice_amount"));
+            for(Long value:new Long[]{receipt,buyer,invoice})if(value!=null&&(value<0||value>cents))throw new BillingException(400,"支付宝通知金额明细无效");
+            if(receipt!=null&&receipt!=cents)throw new BillingException(400,"支付宝通知实收金额不匹配");
+            if(fields.get("trade_no")==null||fields.get("trade_no").isBlank()||order.providerTradeId()!=null&&!order.providerTradeId().equals(fields.get("trade_no")))
+                throw new BillingException(400,"支付宝通知交易号不匹配");
+            orders.observe(order.id(),"CALLBACK",state,fields.get("trade_no"),cents,receipt,buyer,invoice,null,p.getAppId(),p.getSellerId());
+            // Missing receipt detail is not proof of cash received. A verified query must finish reconciliation.
+            if(receipt!=null) orders.credit(order.id(),"ALIPAY",fields.get("trade_no"),cents,"CNY");
         } catch (BillingException e) {
             throw e;
         } catch (Exception e) {
@@ -94,181 +88,8 @@ public class PaymentGateway {
         }
     }
 
-    private String wechatPrepay(PaymentService.Order order) {
-        var p = properties.getWechat();
-
-        required(
-                p.getAppId(),
-                p.getMerchantId(),
-                p.getMerchantSerial(),
-                p.getPrivateKeyPath(),
-                p.getPublicKeyId(),
-                p.getPublicKeyPath());
-        String path = "/v3/pay/transactions/native";
-        String body =
-                json.writeValueAsString(
-                        Map.of(
-                                "appid",
-                                p.getAppId(),
-                                "mchid",
-                                p.getMerchantId(),
-                                "description",
-                                "BoboWorld 账户充值",
-                                "out_trade_no",
-                                order.id(),
-                                "notify_url",
-                                properties.getNotifyBaseUrl() + "/api/payments/callback/wechat",
-                                "time_expire",
-                                order.expiresAt()
-                                        .atZone(ZoneId.of("Asia/Shanghai"))
-                                        .withNano(0)
-                                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                                "amount",
-                                Map.of("total", order.amountCents(), "currency", "CNY")));
-        String nonce = UUID.randomUUID().toString().replace("-", "");
-        String timestamp = Long.toString(Instant.now().getEpochSecond());
-        String signature =
-                PaymentCrypto.sign(
-                        "POST\n" + path + "\n" + timestamp + "\n" + nonce + "\n" + body + "\n",
-                        PaymentCrypto.pem(p.getPrivateKeyPath()));
-        String authorization =
-                "WECHATPAY2-SHA256-RSA2048 mchid=\""
-                        + p.getMerchantId()
-                        + "\",nonce_str=\""
-                        + nonce
-                        + "\",timestamp=\""
-                        + timestamp
-                        + "\",serial_no=\""
-                        + p.getMerchantSerial()
-                        + "\",signature=\""
-                        + signature
-                        + "\"";
-
-        try {
-            return wechat.post()
-                    .uri(path)
-                    .header("Authorization", authorization)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(body)
-                    .exchangeToMono(
-                            response ->
-                                    response.bodyToMono(String.class)
-                                            .map(
-                                                    raw -> {
-                                                        verifyWechat(
-                                                                response.headers().asHttpHeaders(),
-                                                                raw);
-
-                                                        if (!response.statusCode()
-                                                                .is2xxSuccessful()) {
-                                                            throw new BillingException(
-                                                                    502, "微信下单失败，请稍后重试");
-                                                        }
-
-                                                        String code =
-                                                                json.readTree(raw)
-                                                                        .path("code_url")
-                                                                        .asText();
-
-                                                        if (code.isBlank()) {
-                                                            throw new BillingException(
-                                                                    502, "微信没有返回二维码");
-                                                        }
-
-                                                        return code;
-                                                    }))
-                    .timeout(Duration.ofSeconds(10))
-                    .block();
-        } catch (BillingException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BillingException(502, "微信支付暂不可用");
-        }
-    }
-
-    // 3. 微信通知：先验证通知签名，再解密资源并核对商户和订单信息。
-    public void wechatNotify(HttpHeaders headers, String raw) {
-        requireEnabled("WECHAT");
-        verifyWechat(headers, raw);
-        var p = properties.getWechat();
-
-        try {
-            JsonNode envelope = json.readTree(raw);
-
-            if (!"TRANSACTION.SUCCESS".equals(envelope.path("event_type").asText())) {
-                throw new BillingException(400, "微信事件类型无效");
-            }
-
-            JsonNode resource = envelope.path("resource");
-
-            if (!"AEAD_AES_256_GCM".equals(resource.path("algorithm").asText())) {
-                throw new BillingException(400, "微信加密算法无效");
-            }
-
-            String plain =
-                    PaymentCrypto.decrypt(
-                            p.getApiV3Key(),
-                            resource.path("nonce").asText(),
-                            resource.path("associated_data").asText(null),
-                            resource.path("ciphertext").asText());
-            JsonNode trade = json.readTree(plain);
-
-            if (!p.getAppId().equals(trade.path("appid").asText())
-                    || !p.getMerchantId().equals(trade.path("mchid").asText())
-                    || !"SUCCESS".equals(trade.path("trade_state").asText())
-                    || !"NATIVE".equals(trade.path("trade_type").asText())) {
-                throw new BillingException(400, "微信商户或交易状态不匹配");
-            }
-
-            JsonNode amount = trade.path("amount");
-
-            if (!amount.path("total").isIntegralNumber()) {
-                throw new BillingException(400, "微信金额无效");
-            }
-
-            orders.credit(
-                    trade.path("out_trade_no").asText(),
-                    "WECHAT",
-                    trade.path("transaction_id").asText(),
-                    amount.path("total").asLong(),
-                    amount.path("currency").asText());
-        } catch (BillingException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BillingException(400, "微信回调无效");
-        }
-    }
-
-    // 3.1. 微信签名校验：将时间戳、随机串和原始请求体作为同一签名消息。
-    private void verifyWechat(HttpHeaders headers, String raw) {
-        String timestamp = single(headers, "Wechatpay-Timestamp"),
-                nonce = single(headers, "Wechatpay-Nonce"),
-                serial = single(headers, "Wechatpay-Serial"),
-                signature = single(headers, "Wechatpay-Signature");
-
-        PaymentCrypto.timestamp(timestamp);
-        var p = properties.getWechat();
-        String path =
-                serial.equals(p.getPublicKeyId())
-                        ? p.getPublicKeyPath()
-                        : p.getAdditionalPublicKeys().get(serial);
-
-        if (path == null || path.isBlank()) {
-            throw new BillingException(401, "未知微信支付验签公钥 ID");
-        }
-
-        PaymentCrypto.verify(
-                timestamp + "\n" + nonce + "\n" + raw + "\n", signature, PaymentCrypto.pem(path));
-    }
-
-    private static String single(HttpHeaders h, String name) {
-        var values = h.get(name);
-
-        if (values == null || values.size() != 1 || values.getFirst().isBlank()) {
-            throw new BillingException(401, "支付签名头无效");
-        }
-
-        return values.getFirst();
+    private static Long amount(String value) {
+        return value==null||value.isBlank()?null:new BigDecimal(value).movePointRight(2).longValueExact();
     }
 
     private static void required(String... values) {

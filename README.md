@@ -6,9 +6,47 @@ BOBO4J 把模型调用、知识检索、工具执行和消费结算拆分为边�
 
 本仓库是**后端与基础设施**聚合工程，配套前端为独立仓库 [Bobo_web](https://github.com/bbb-520/Bobo_web)（React 18 + TypeScript + Vite）。前后端整体统称 **BOBO4J**，源码目录与 Maven 模块名保留 `agent-*` 命名。
 
-## 本次上线改动（2026-10-12）
+## 支付链路稳定性更新（2026-10-12）
 
-本次同步的是 `https://www.boboo.xin/` 当前部署版本对应的前后端源码。后端对应 `20261012-universal-chat-v3` 发布，前端对应 `20261012-ui-polish-v1` 发布；源码与部署产物分开管理，真实运行配置、密钥、数据库和上传文件不提交到 GitHub。
+此节对应本次源码修复及 GitHub 提交；本轮没有执行生产部署或真实资金操作。下面“此前上线改动”记录的是此前部署的基线版本。
+
+- **仅保留支付宝**：删除微信 Native 下单、回调、验签解密、匿名/CSRF 豁免、环境参数及前端入口。新建微信订单返回 400，旧微信支付缓存不能用于重新下单；历史订单、账单和余额保留。
+- **退款有明确出口**：自动核对采用数据库租约和分级退避，最多 12 次或 24 小时；仍无法确认时，退款进入 `REVIEW`、订单进入 `REFUND_REVIEW`，停止自动重试。该状态表示待人工核对，资金继续扣留，绝不按超时自动标记成功或恢复可消费余额。后台人员凭已独立核对的支付宝账单或工单，可审计地确认 `SUCCEEDED` 或 `FAILED`；失败恢复余额只执行一次，已完成结果不能覆盖。
+- **二维码可恢复**：新增 `POST /api/payments/orders/{id}/qr`，在同一用户、同一订单、同一金额上重新预创建，复用订单号而不新增订单；租约过期或状态变化时明确报错。刷新失败保留已有有效二维码，保存成功递增 `qrVersion`。前端支持重新获取、同一内容重新绘制、错误提示和页面恢复；`stateVersion` 与二维码版本防止旧轮询覆盖新状态。
+- **加强渠道核对**：除原始订单、金额、交易号及币种外，核对返回的应用/商户标识、实收金额，以及退款请求号、退款金额和返回的原始总金额。成功响应必须有经过 SDK 校验的签名。充值实收金额必须与充值金额相同；买家实付和可开票金额允许因渠道优惠而不同，但须在订单金额范围内。缺少实收明细的支付通知只记录观察结果，由后续已验签查单确认，不直接充值。
+- **资金审计**：增加 `payment_ledger`（充值、退款资金扣留、失败释放、退款成功）和 `payment_observation`（已验签的渠道状态及金额明细）。流水与钱包变更处于同一事务；重复回调/人工处理不重复增减余额。已到账支付宝订单每日继续核对，渠道状态异常时保留原账并提示人工检查。
+
+### 运维接口与对账范围
+
+| 接口 | 权限与用途 |
+| --- | --- |
+| `POST /api/payments/orders/{id}/qr` | 登录用户的 `payment:manage`，只刷新自己的待支付且未过期订单 |
+| `GET /api/payments/admin/reconciliation?limit=50` | `billing:reconcile`；最近订单摘要，条数范围 1～200 |
+| `GET /api/payments/admin/orders/{id}/audit` | `billing:reconcile`；订单资金流水、最近 100 条渠道观察和退款人工处理记录 |
+| `GET /api/payments/admin/orders/{id}/refund` | `billing:refund`；退款状态、尝试次数、核对次数、错误和证据编号 |
+| `POST /api/payments/admin/orders/{id}/refund/resolve` | 同时拥有 `billing:refund` 和 `billing:reconcile`；仅处理 `REVIEW`，必须提供终态、原因、渠道证据编号 |
+
+人工处理请求示例（还需登录 Cookie 和 `X-XSRF-TOKEN`；令牌通过 `/api/auth/csrf` 获取）：
+
+```json
+{
+  "outcome": "FAILED",
+  "reason": "已独立核对支付宝退款记录，确认未退款",
+  "evidenceReference": "支付宝账单或客服工单的真实编号"
+}
+```
+
+只有实际核对确认已退款时才使用 `SUCCEEDED`，否则不能仅为结束页面提示而改变资金终态。相同操作者、终态、原因和证据的重复处理幂等；不同结果或证据返回 409。
+
+报告分别显示钱包本订单资金变动、退款扣留金额、渠道实收与已知退款额、差额及核对时间。`MATCHED` 只表示已有完整字段的本订单资金变动一致；缺少渠道累计退款额等字段显示 `INCOMPLETE`，历史无流水记录显示 `LEGACY_UNVERIFIED`，错误显示 `REVIEW`，人工证据显示 `MANUAL_EVIDENCE`。不会把缺失字段当作零，也不会据此声称完成银行结算对账或整个钱包（包括模型消费）的总账核对。人工证据编号为授权人员独立核对后的审计记录，不冒充支付宝 API 回执。
+
+升级使用新增迁移 `V9__alipay_stability.sql`；旧迁移不改、历史数据不删、不伪造旧资金流水。上线前备份数据库，前后端同时升级；涉及支付未知状态的资金不可通过数据库手动清零。支付宝应用上线审核仍是正式支付的外部前提。
+
+回归覆盖：签名与字段篡改、退款次数/期限、未知资金保持、租约过期、人工处理权限/证据/幂等与并发、二维码失效/刷新/绘制错误、资金流水与差异报告、旧微信数据迁移。测试采用真实 SDK + 本地签名 HTTP 网关与事务数据库，不能替代支付宝生产资金验收。接口语义参考[支付宝官方退款查询说明](https://aipay.alipay.com/docs/vibe-pay/ai-web-app-payment-qianyi/api-list/alipay-trade-fastpay-refund-query.html)。
+
+## 此前上线改动（2026-10-12）
+
+此前同步的是 `https://www.boboo.xin/` 当时部署版本对应的前后端源码。后端对应 `20261012-universal-chat-v3` 发布，前端对应 `20261012-ui-polish-v1` 发布；源码与部署产物分开管理，真实运行配置、密钥、数据库和上传文件不提交到 GitHub。
 
 ### 功能与修复
 
@@ -131,7 +169,7 @@ BoboWorld4J/
 | 模型兜底 | 主模型超时或可重试异常时最多尝试一次备用模型；失败保留明确状态、已有内容与调用回执 |
 | 模型工作标识 | 显示实际供应商 / 型号、兜底标识，以及处理、完成、失败、停止、等待状态 |
 | 图片与内容 | OSS 直传策略、图片生成任务、Zine 创作与 Bobo World 作品发布 |
-| 账户与支付 | QQ 邮箱验证码、Cookie 登录、注册赠送免费 Token、钱包与消费记录、支付宝及微信扫码充值 |
+| 账户与支付 | QQ 邮箱验证码、Cookie 登录、注册赠送免费 Token、钱包与消费记录、支付宝扫码充值 |
 | 账户治理 | RBAC 角色与权限、操作审计、用户禁用、模型调用组对账 |
 | 可观测性 | Actuator、Micrometer、Prometheus 指标与告警、Zipkin 调用链 |
 
@@ -146,7 +184,7 @@ BoboWorld4J/
 | 数据与迁移 | MySQL 8.4、Spring JDBC、MyBatis-Plus（Spring Boot 4 Starter）、Flyway、Redis Stack 7.4 |
 | 文档与检索 | Apache Tika 3.3.2、Milvus Server 2.6.2 / Java SDK 2.6.4、BM25、RRF |
 | 模型 | ChatGPT 主模型、千问兜底；默认 Embedding 为 `text-embedding-v4`，向量维度 1024 |
-| 对象存储与支付 | 阿里云 OSS SDK、JavaMail（QQ SMTP）、支付宝 SDK、微信支付 Native API v3 |
+| 对象存储与支付 | 阿里云 OSS SDK、JavaMail（QQ SMTP）、支付宝 SDK |
 | 部署与监控 | Docker / Compose、Prometheus 3.4.2、Zipkin 3.5.1、Sentinel Dashboard |
 | 验证 | JUnit 5、Spring Boot Test、Testcontainers、H2、ArchUnit 风格架构门禁 |
 
@@ -282,3 +320,7 @@ mvn -pl agent-architecture-tests -am -Dmaven.compiler.fork=true test
 - 模型、OSS、邮箱与支付需要各自凭据，服务启动就绪不等于外部能力已验证。
 - 文档证据检查与模型兜底可减少失败与不忠实回答，但无法保证每次生成绝对正确。
 - 本 README 描述当前源码实现；生产环境应使用一致版本的前后端，并在改动后重新打包与构建镜像。
+
+## 服务器中间件使用
+
+实际服务器端口、SSH 隧道、Nacos 配置发布、数据库/Redis 查询和容器配置生效方式见 [服务器中间件使用说明](docs/middleware-operations.md)。

@@ -92,15 +92,6 @@ app:
       seller-id: ${ALIPAY_SELLER_ID:}
       private-key-path: ${ALIPAY_PRIVATE_KEY_PATH:}
       public-key-path: ${ALIPAY_PUBLIC_KEY_PATH:}
-    wechat:
-      enabled: ${WECHAT_PAY_ENABLED:false}
-      app-id: ${WECHAT_APP_ID:}
-      merchant-id: ${WECHAT_MERCHANT_ID:}
-      merchant-serial: ${WECHAT_MERCHANT_SERIAL:}
-      private-key-path: ${WECHAT_PRIVATE_KEY_PATH:}
-      api-v3-key: ${WECHAT_API_V3_KEY:}
-      public-key-id: ${WECHAT_PUBLIC_KEY_ID:}
-      public-key-path: ${WECHAT_PUBLIC_KEY_PATH:}
   security:
     # Server-side envelope key; this is not the user provider key.
     # The local default keeps startup independent from provider credentials; override it in production.

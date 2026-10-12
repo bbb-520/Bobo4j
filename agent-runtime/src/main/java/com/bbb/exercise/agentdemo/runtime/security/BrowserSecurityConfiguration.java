@@ -136,9 +136,7 @@ public class BrowserSecurityConfiguration {
                                                                                             .getMethod())
                                                                     || path.startsWith("/internal/")
                                                                     || path.equals(
-                                                                            "/api/payments/callback/alipay")
-                                                                    || path.equals(
-                                                                            "/api/payments/callback/wechat");
+                                                                            "/api/payments/callback/alipay");
 
                                                     return skip
                                                             ? ServerWebExchangeMatcher.MatchResult

@@ -5,6 +5,12 @@ import static org.assertj.core.api.Assertions.*;
 
 /** 验证已知业务路径精确映射到所需权限。 */
 class PermissionPolicyTest {
+    @Test void removedWechatAndPaymentOperatorRoutesAreNotPublic() {
+        assertThat(PermissionPolicy.publicEndpoint("POST","/api/payments/callback/wechat")).isFalse();
+        assertThat(PermissionPolicy.required("POST","/api/payments/admin/orders/id/refund/resolve")).isEqualTo("billing:refund");
+        assertThat(PermissionPolicy.required("GET","/api/payments/admin/reconciliation")).isEqualTo("billing:reconcile");
+        assertThat(PermissionPolicy.required("GET","/api/payments/admin/orders/id/audit")).isEqualTo("billing:reconcile");
+    }
     @Test void albumCanBeReadAnonymouslyButHasNoPublicWriteOrSiblingPath() {
         assertThat(PermissionPolicy.publicEndpoint("GET", "/api/photo-archive")).isTrue();
         assertThat(PermissionPolicy.publicEndpoint("GET", "/api/photo-archive/a.jpg")).isTrue();

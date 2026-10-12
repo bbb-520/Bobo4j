@@ -46,7 +46,11 @@ public class AlipayTradeGateway {
             else if (request instanceof AlipayTradeCloseRequest r) r.setBizContent(json.writeValueAsString(body));
             else if (request instanceof AlipayTradeRefundRequest r) r.setBizContent(json.writeValueAsString(body));
             else if (request instanceof AlipayTradeFastpayRefundQueryRequest r) r.setBizContent(json.writeValueAsString(body));
-            return client().execute(request);
+            T response=client().execute(request);
+            // SDK permits unsigned error envelopes, but financial success must have a verified signature.
+            if(response.isSuccess() && json.readTree(response.getBody()).path("sign").asText("").isBlank())
+                throw new BillingException(502,"支付宝成功响应缺少签名");
+            return response;
         } catch (BillingException e) { throw e; }
         catch (Exception e) {
             throw new BillingException(502, "支付宝通信或响应验签失败，请稍后查询订单", e);
@@ -59,7 +63,7 @@ public class AlipayTradeGateway {
         var request = new AlipayTradePrecreateRequest();
         request.setNotifyUrl(properties.getNotifyBaseUrl() + "/api/payments/callback/alipay");
         var response = execute(request, Map.of("out_trade_no", order.id(), "total_amount", money(order.amountCents()),
-                "subject", "BoboWorld 账户充值", "timeout_express", "30m",
+                "subject", "BoboWorld 账户充值",
                 "time_expire", order.expiresAt().atZone(ZoneId.of("Asia/Shanghai"))
                         .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
         requireSuccess(response);
@@ -71,8 +75,9 @@ public class AlipayTradeGateway {
 
     public Trade query(PaymentService.Order order) {
         var r = execute(new AlipayTradeQueryRequest(), Map.of("out_trade_no", order.id()));
-        if (!r.isSuccess() && "ACQ.TRADE_NOT_EXIST".equals(r.getSubCode())) return new Trade("NOT_FOUND", null, 0);
+        if (!r.isSuccess() && "ACQ.TRADE_NOT_EXIST".equals(r.getSubCode())) return new Trade("NOT_FOUND",null,0,null,null,null,null);
         requireSuccess(r);
+        requireMerchant(r,"alipay_trade_query_response");
         requireOrder(order, r.getOutTradeNo());
         long cents = cents(r.getTotalAmount());
         if (cents != order.amountCents()) throw new BillingException(502, "支付宝查单金额不匹配");
@@ -80,12 +85,30 @@ public class AlipayTradeGateway {
             throw new BillingException(502, "支付宝查单币种不匹配");
         if (r.getTradeNo() == null || r.getTradeNo().isBlank())
             throw new BillingException(502, "支付宝查单交易号为空");
-        return new Trade(r.getTradeStatus(), r.getTradeNo(), cents);
+        if(order.providerTradeId()!=null&&!order.providerTradeId().equals(r.getTradeNo()))
+            throw new BillingException(502,"支付宝查单交易号发生变化");
+        if(!Set.of("WAIT_BUYER_PAY","TRADE_SUCCESS","TRADE_FINISHED","TRADE_CLOSED").contains(r.getTradeStatus()==null?"":r.getTradeStatus()))
+            throw new BillingException(502,"支付宝返回未知交易状态");
+        var data=json.readTree(r.getBody()).path("alipay_trade_query_response");
+        for(String field:new String[]{"pay_currency","settle_currency","receipt_currency_type"}) {
+            String currency=data.path(field).asText(null);
+            if(currency!=null&&!currency.isBlank()&&!"CNY".equals(currency))throw new BillingException(502,"支付宝支付/实收币种不匹配");
+        }
+        Long receipt=optionalCents(data.path("receipt_amount").asText(null));
+        Long buyer=optionalCents(data.path("buyer_pay_amount").asText(null));
+        Long invoice=optionalCents(data.path("invoice_amount").asText(null));
+        Long refunded=optionalCents(data.path("refund_amount").asText(null));
+        for(Long value:new Long[]{receipt,buyer,invoice,refunded})
+            if(value!=null&&(value<0||value>cents))throw new BillingException(502,"支付宝金额明细超出订单范围");
+        if(Set.of("TRADE_SUCCESS","TRADE_FINISHED").contains(r.getTradeStatus()) && (receipt==null||receipt!=cents))
+            throw new BillingException(502,"支付宝实收金额缺失或不匹配，请核对渠道账单");
+        return new Trade(r.getTradeStatus(),r.getTradeNo(),cents,receipt,buyer,invoice,refunded);
     }
 
     public void close(PaymentService.Order order) {
         var r = execute(new AlipayTradeCloseRequest(), Map.of("out_trade_no", order.id()));
         requireSuccess(r);
+        requireMerchant(r,"alipay_trade_close_response");
         requireOrder(order, r.getOutTradeNo());
     }
 
@@ -95,6 +118,12 @@ public class AlipayTradeGateway {
         if (!r.isSuccess() && Set.of("ACQ.TRADE_NOT_EXIST", "ACQ.REFUND_NOT_EXIST").contains(r.getSubCode()))
             return RefundState.MISSING;
         requireSuccess(r);
+        requireMerchant(r,"alipay_trade_fastpay_refund_query_response");
+        if(r.getOutTradeNo()!=null) requireOrder(order,r.getOutTradeNo());
+        if(r.getOutRequestNo()!=null&&!refund.id().equals(r.getOutRequestNo())
+                ||r.getTradeNo()!=null&&!order.providerTradeId().equals(r.getTradeNo())
+                ||r.getTotalAmount()!=null&&cents(r.getTotalAmount())!=order.amountCents())
+            throw new BillingException(502,"支付宝退款查询归属或原始金额不匹配");
         // Alipay omits refund_status when this request has no refund record.
         if (r.getRefundStatus() == null || r.getRefundStatus().isBlank()) return RefundState.MISSING;
         requireOrder(order, r.getOutTradeNo());
@@ -119,6 +148,7 @@ public class AlipayTradeGateway {
             requireSuccess(r);
         }
         requireOrder(order, r.getOutTradeNo());
+        requireMerchant(r,"alipay_trade_refund_response");
         if (!order.providerTradeId().equals(r.getTradeNo()) || cents(r.getRefundFee()) != refund.amountCents())
             throw new BillingException(502, "支付宝退款结果信息不匹配");
         // code=10000 alone is not financial confirmation. N/missing must be queried.
@@ -141,7 +171,14 @@ public class AlipayTradeGateway {
         try { return new BigDecimal(amount).movePointRight(2).longValueExact(); }
         catch (Exception e) { throw new BillingException(502, "支付宝返回金额无效"); }
     }
-    public record Trade(String status, String tradeId, long amountCents) {}
+    private void requireMerchant(AlipayResponse response,String name) {
+        var data=json.readTree(response.getBody()).path(name);
+        String app=data.path("app_id").asText(null),seller=data.path("seller_id").asText(null);
+        if(app!=null&&!properties.getAlipay().getAppId().equals(app)||seller!=null&&!properties.getAlipay().getSellerId().equals(seller))
+            throw new BillingException(502,"支付宝响应应用或商户不匹配");
+    }
+    private static Long optionalCents(String amount) { return amount==null||amount.isBlank()?null:cents(amount); }
+    public record Trade(String status,String tradeId,long amountCents,Long receiptCents,Long buyerPaidCents,Long invoiceCents,Long refundedCents) {}
     public enum RefundState { MISSING, PENDING, SUCCEEDED }
     public static class RejectedRefund extends BillingException {
         public RejectedRefund(String code) { super(502, "支付宝拒绝退款（" + code + "）"); }

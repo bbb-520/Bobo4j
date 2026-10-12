@@ -31,7 +31,7 @@ class PaymentServiceTest {
         new ResourceDatabasePopulator(
                         new ClassPathResource("db/migration/V3__billing.sql"),
                         new ClassPathResource("db/migration/V6__free_tokens.sql"),
-                        new ClassPathResource("db/migration/V8__payment_recovery.sql"))
+                        new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"))
                 .execute(ds);
         new BillingService(jdbc, tx, 10000, 200000, 1000000, 500000).createWallet("alice", 0);
         payments = new PaymentService(jdbc, tx);
@@ -70,13 +70,13 @@ class PaymentServiceTest {
 
     @Test
     void wrongAmountChannelOrCurrencyDoesNotCredit() {
-        var order = payments.create("alice", "order-key", "WECHAT", 1000);
+        var order = payments.create("alice", "order-key", "ALIPAY", 1000);
 
-        assertThatThrownBy(() -> payments.credit(order.id(), "WECHAT", "trade", 999, "CNY"))
+        assertThatThrownBy(() -> payments.credit(order.id(), "ALIPAY", "trade", 999, "CNY"))
                 .isInstanceOf(BillingException.class);
-        assertThatThrownBy(() -> payments.credit(order.id(), "ALIPAY", "trade", 1000, "CNY"))
+        assertThatThrownBy(() -> payments.credit(order.id(), "WECHAT", "trade", 1000, "CNY"))
                 .isInstanceOf(BillingException.class);
-        assertThatThrownBy(() -> payments.credit(order.id(), "WECHAT", "trade", 1000, "USD"))
+        assertThatThrownBy(() -> payments.credit(order.id(), "ALIPAY", "trade", 1000, "USD"))
                 .isInstanceOf(BillingException.class);
         assertThat(
                         jdbc.queryForObject(
@@ -120,7 +120,7 @@ class PaymentServiceTest {
                 org.mockito.Mockito.mockStatic(
                         java.time.LocalDateTime.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             applicationClock.when(java.time.LocalDateTime::now).thenReturn(ahead);
-            var order = payments.create("alice", "clock-order", "WECHAT", 100);
+            var order = payments.create("alice", "clock-order", "ALIPAY", 100);
             long seconds =
                     jdbc.queryForObject(
                             "SELECT TIMESTAMPDIFF(SECOND,CURRENT_TIMESTAMP,expires_at) FROM payment_order WHERE id=?",
@@ -133,7 +133,7 @@ class PaymentServiceTest {
 
     @Test
     void prepayLeaseUsesDatabaseClockEvenWhenApplicationWallClockDiffers() {
-        var order = payments.create("alice", "clock-lease", "WECHAT", 100);
+        var order = payments.create("alice", "clock-lease", "ALIPAY", 100);
         var ahead = java.time.LocalDateTime.now().plusHours(2);
 
         try (var applicationClock =

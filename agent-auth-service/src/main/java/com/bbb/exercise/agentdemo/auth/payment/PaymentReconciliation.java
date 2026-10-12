@@ -22,7 +22,7 @@ public class PaymentReconciliation {
 
     public PaymentService.Order refresh(String user, String id) {
         var order = orders.get(user,id); // Ownership check always precedes external requests.
-        if (properties.getAlipay().isEnabled() && "ALIPAY".equals(order.channel()) && "PENDING".equals(order.status())) sync(order);
+        if (properties.getAlipay().isEnabled() && "ALIPAY".equals(order.channel()) && Set.of("PENDING","PAID").contains(order.status())) sync(order);
         return orders.get(user,id);
     }
 
@@ -32,6 +32,9 @@ public class PaymentReconciliation {
         String error = null;
         try {
             var trade = alipay.query(order);
+            if(!"NOT_FOUND".equals(trade.status()) && !orders.observeQuery(order.id(),owner,trade.status(),trade.tradeId(),trade.amountCents(),trade.receiptCents(),trade.buyerPaidCents(),trade.invoiceCents(),trade.refundedCents(),properties.getAlipay().getAppId(),properties.getAlipay().getSellerId())) return;
+            if("PAID".equals(order.status())&&!Set.of("TRADE_SUCCESS","TRADE_FINISHED").contains(trade.status()))
+                throw new BillingException(502,"已入账订单与渠道状态不一致，请人工核对");
             if (Set.of("TRADE_SUCCESS","TRADE_FINISHED").contains(trade.status())) {
                 orders.credit(order.id(),"ALIPAY",trade.tradeId(),trade.amountCents(),"CNY");
             } else if ("TRADE_CLOSED".equals(trade.status())) {
@@ -60,6 +63,10 @@ public class PaymentReconciliation {
         String error = null;
         int attempt = 0;
         try {
+            if(refunds.budgetExhausted(refund.id())) {
+                refunds.review(refund.id(),owner,"自动退款核对超过次数或 24 小时上限，请核对渠道账单");
+                return;
+            }
             var order = orders.find(refund.orderId());
             var state = alipay.refundQuery(order,refund);
             if (state == AlipayTradeGateway.RefundState.SUCCEEDED) refunds.succeed(refund.id(),owner);

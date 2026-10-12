@@ -22,7 +22,7 @@ public class PaymentService {
     public Order create(String user, String key, String channel, long cents) {
         if (key == null
                 || !key.matches("[A-Za-z0-9_.:-]{1,128}")
-                || channel == null || !java.util.Set.of("ALIPAY", "WECHAT").contains(channel)
+                || !"ALIPAY".equals(channel)
                 || cents < 1
                 || cents > 1000000) {
             throw new BillingException(400, "订单参数无效，充值范围为 0.01～10000 元");
@@ -84,23 +84,28 @@ public class PaymentService {
             throw new BillingException(502, "支付平台没有返回二维码");
         }
 
-        jdbc.update(
-                "UPDATE payment_order SET qr_code=? WHERE id=? AND user_id=? AND status='PENDING' AND qr_code IS NULL AND prepay_owner=? AND prepay_until>CURRENT_TIMESTAMP",
+        int changed = jdbc.update(
+                "UPDATE payment_order SET qr_code=?,qr_version=qr_version+1,qr_updated_at=CURRENT_TIMESTAMP,last_error=NULL WHERE id=? AND user_id=? AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP AND prepay_owner=? AND prepay_until>CURRENT_TIMESTAMP",
                 code,
                 id,
                 user,
                 owner);
+        if (changed != 1) throw new BillingException(409,"二维码保存失败：订单状态已变化或下单租约过期，请查询后重试");
     }
 
     // 2.1. 预下单租约：通过条件更新减少同一订单的并发重复下单。
     public String acquirePrepay(String user, String id) {
+        return acquirePrepay(user,id,false);
+    }
+
+    public String acquirePrepay(String user, String id, boolean refresh) {
         String owner = UUID.randomUUID().toString();
         int changed =
                 jdbc.update(
-                        "UPDATE payment_order SET prepay_owner=?,prepay_until=TIMESTAMPADD(SECOND,60,CURRENT_TIMESTAMP) WHERE id=? AND user_id=? AND status='PENDING' AND qr_code IS NULL AND expires_at>CURRENT_TIMESTAMP AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP) AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP)",
+                        "UPDATE payment_order SET prepay_owner=?,prepay_until=TIMESTAMPADD(SECOND,60,CURRENT_TIMESTAMP) WHERE id=? AND user_id=? AND status='PENDING' AND (? OR qr_code IS NULL) AND expires_at>CURRENT_TIMESTAMP AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP) AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP)",
                         owner,
                         id,
-                        user);
+                        user,refresh);
 
         if (changed != 1) {
             throw new BillingException(409, "订单下单中、已完成或已过期，请查询订单");
@@ -118,9 +123,16 @@ public class PaymentService {
                 owner);
     }
 
+    public void prepayFailed(String user,String id,String owner,Exception failure) {
+        String message=failure instanceof BillingException b?b.getReason():"二维码获取失败，请重试同一订单";
+        if(message==null)message="二维码获取失败";
+        jdbc.update("UPDATE payment_order SET last_error=? WHERE id=? AND user_id=? AND prepay_owner=? AND status='PENDING'",
+                message.substring(0,Math.min(256,message.length())),id,user,owner);
+    }
+
     // 3. 支付入账：仅接收已验签的渠道通知，订单和钱包更新共享事务。
     public void credit(String id, String channel, String trade, long cents, String currency) {
-        if (trade == null || trade.isBlank() || trade.length() > 128) {
+        if (!"ALIPAY".equals(channel) || trade == null || trade.isBlank() || trade.length() > 128) {
             throw new BillingException(400, "支付交易号无效");
         }
 
@@ -145,7 +157,7 @@ public class PaymentService {
                     }
 
                     // 3.1. 重复通知：已支付订单必须匹配同一渠道交易号，匹配时直接返回。
-                    if (java.util.Set.of("PAID", "REFUNDING", "REFUNDED").contains(o.status())) {
+                    if (java.util.Set.of("PAID", "REFUNDING", "REFUND_REVIEW", "REFUNDED").contains(o.status())) {
                         if (!trade.equals(o.providerTradeId())) {
                             throw new BillingException(409, "订单交易号不匹配");
                         }
@@ -165,13 +177,14 @@ public class PaymentService {
                             Long.class,
                             o.userId());
                     jdbc.update(
-                            "UPDATE payment_order SET status='PAID',provider_trade_id=?,paid_at=CURRENT_TIMESTAMP,last_error=NULL WHERE id=? AND status IN ('PENDING','CLOSED')",
+                            "UPDATE payment_order SET status='PAID',state_version=state_version+1,provider_trade_id=?,paid_at=CURRENT_TIMESTAMP,last_error=NULL WHERE id=? AND status IN ('PENDING','CLOSED')",
                             trade,
                             id);
                     jdbc.update(
                             "UPDATE billing_wallet SET balance_micros=balance_micros+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
                             Math.multiplyExact(cents, 10000L),
                             o.userId());
+                    ledger(jdbc,id,null,"CREDIT",Math.multiplyExact(cents,10000L),"ALIPAY");
                 });
     }
 
@@ -182,13 +195,13 @@ public class PaymentService {
     }
 
     public java.util.List<Order> dueOrders() {
-        return jdbc.query("SELECT * FROM payment_order WHERE channel='ALIPAY' AND status='PENDING' AND next_check_at<=CURRENT_TIMESTAMP ORDER BY next_check_at LIMIT 20",
+        return jdbc.query("SELECT * FROM payment_order WHERE channel='ALIPAY' AND status IN ('PENDING','PAID') AND next_check_at<=CURRENT_TIMESTAMP ORDER BY next_check_at LIMIT 20",
                 (rs,n) -> map(rs));
     }
 
     public String acquireSync(String id) {
         String owner = UUID.randomUUID().toString();
-        int changed = jdbc.update("UPDATE payment_order SET sync_owner=?,sync_until=TIMESTAMPADD(SECOND,60,CURRENT_TIMESTAMP) WHERE id=? AND status='PENDING' AND next_check_at<=CURRENT_TIMESTAMP AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP) AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP)", owner,id);
+        int changed = jdbc.update("UPDATE payment_order SET sync_owner=?,sync_until=TIMESTAMPADD(SECOND,60,CURRENT_TIMESTAMP) WHERE id=? AND status IN ('PENDING','PAID') AND next_check_at<=CURRENT_TIMESTAMP AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP) AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP)", owner,id);
         return changed == 1 ? owner : null;
     }
 
@@ -197,11 +210,36 @@ public class PaymentService {
     }
 
     public void closed(String id, String owner) {
-        jdbc.update("UPDATE payment_order SET status='CLOSED',qr_code=NULL,last_error=NULL WHERE id=? AND status='PENDING' AND sync_owner=? AND sync_until>CURRENT_TIMESTAMP", id,owner);
+        jdbc.update("UPDATE payment_order SET status='CLOSED',state_version=state_version+1,qr_code=NULL,last_error=NULL WHERE id=? AND status='PENDING' AND sync_owner=? AND sync_until>CURRENT_TIMESTAMP", id,owner);
     }
 
     public void finishSync(String id, String owner, String error) {
-        jdbc.update("UPDATE payment_order SET sync_owner=NULL,sync_until=NULL,next_check_at=TIMESTAMPADD(SECOND,CASE WHEN expires_at<CURRENT_TIMESTAMP THEN 300 ELSE 10 END,CURRENT_TIMESTAMP),last_error=CASE WHEN status='PENDING' THEN ? ELSE NULL END WHERE id=? AND sync_owner=?", error,id,owner);
+        jdbc.update("UPDATE payment_order SET sync_owner=NULL,sync_until=NULL,next_check_at=TIMESTAMPADD(SECOND,CASE WHEN status='PAID' THEN 86400 WHEN expires_at<CURRENT_TIMESTAMP THEN 300 ELSE 10 END,CURRENT_TIMESTAMP),last_checked_at=CURRENT_TIMESTAMP,last_error=?,reconcile_state=CASE WHEN ? IS NOT NULL THEN 'ERROR' ELSE reconcile_state END WHERE id=? AND sync_owner=?", error,error,id,owner);
+    }
+
+    public void observe(String id,String source,String state,String trade,long amount,Long receipt,Long buyer,Long invoice,Long refunded,String app,String seller) {
+        observe(id,source,state,trade,amount,receipt,buyer,invoice,refunded,app,seller,null);
+    }
+
+    public boolean observeQuery(String id,String owner,String state,String trade,long amount,Long receipt,Long buyer,Long invoice,Long refunded,String app,String seller) {
+        return observe(id,"QUERY",state,trade,amount,receipt,buyer,invoice,refunded,app,seller,owner);
+    }
+
+    private boolean observe(String id,String source,String state,String trade,long amount,Long receipt,Long buyer,Long invoice,Long refunded,String app,String seller,String owner) {
+        return Boolean.TRUE.equals(tx.execute(s -> {
+            jdbc.queryForObject("SELECT id FROM payment_order WHERE id=? FOR UPDATE",String.class,id);
+            if(owner!=null && jdbc.queryForObject("SELECT COUNT(*) FROM payment_order WHERE id=? AND sync_owner=? AND sync_until>CURRENT_TIMESTAMP AND status IN ('PENDING','PAID')",Integer.class,id,owner)!=1) return false;
+            jdbc.update("INSERT INTO payment_observation(id,order_id,source,provider_status,provider_trade_id,amount_cents,receipt_cents,buyer_paid_cents,invoice_cents,refunded_cents,app_id,seller_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    UUID.randomUUID().toString(),id,source,state,trade,amount,receipt,buyer,invoice,refunded,app,seller);
+            jdbc.update("UPDATE payment_order SET provider_status=?,receipt_cents=COALESCE(?,receipt_cents),buyer_paid_cents=COALESCE(?,buyer_paid_cents),invoice_cents=COALESCE(?,invoice_cents),provider_refunded_cents=COALESCE(?,provider_refunded_cents),last_checked_at=CURRENT_TIMESTAMP,reconcile_state=CASE WHEN reconcile_state='MANUAL' THEN 'MANUAL' WHEN COALESCE(?,receipt_cents) IS NULL THEN 'INCOMPLETE' ELSE 'VERIFIED' END WHERE id=?",
+                    state,receipt,buyer,invoice,refunded,receipt,id);
+            return true;
+        }));
+    }
+
+    static void ledger(JdbcTemplate db,String order,String refund,String type,long delta,String actor) {
+        db.update("INSERT INTO payment_ledger(event_key,order_id,refund_id,event_type,delta_micros,actor) VALUES(?,?,?,?,?,?)",
+                order+":"+type,order,refund,type,delta,actor);
     }
 
     private static Order map(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -213,7 +251,13 @@ public class PaymentService {
                 rs.getString("status"),
                 rs.getString("provider_trade_id"),
                 rs.getString("qr_code"),
-                rs.getTimestamp("expires_at").toInstant());
+                rs.getTimestamp("expires_at").toInstant(),rs.getLong("qr_version"),instant(rs,"qr_updated_at"),
+                rs.getString("last_error"),rs.getString("provider_status"),rs.getString("reconcile_state"),instant(rs,"last_checked_at"),
+                (Long)rs.getObject("receipt_cents"),(Long)rs.getObject("buyer_paid_cents"),(Long)rs.getObject("invoice_cents"),(Long)rs.getObject("provider_refunded_cents"),rs.getLong("state_version"));
+    }
+
+    private static Instant instant(java.sql.ResultSet rs,String name) throws java.sql.SQLException {
+        var value=rs.getTimestamp(name);return value==null?null:value.toInstant();
     }
 
     /** 支付订单快照，保存所属用户、渠道、金额、二维码和到账状态。 */
@@ -225,5 +269,6 @@ public class PaymentService {
             String status,
             String providerTradeId,
             String qrCode,
-            Instant expiresAt) {}
+            Instant expiresAt,long qrVersion,Instant qrUpdatedAt,String lastError,String providerStatus,String reconcileState,
+            Instant lastCheckedAt,Long receiptCents,Long buyerPaidCents,Long invoiceCents,Long refundedCents,long stateVersion) {}
 }
