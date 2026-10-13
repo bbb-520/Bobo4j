@@ -135,28 +135,11 @@ public class InternalChatController {
     }
 
     // 3. 内部视觉记忆查询：仅检索签名身份所属的记忆。
-    @GetMapping("/visual-memory")
-    public Mono<Map<String, Object>> visualMemory(
-            @RequestHeader("X-Internal-Principal") String token, @RequestParam String query) {
-        return Mono.fromCallable(
-                        () -> {
-                            if (query.length() > 20000) {
-                                throw new IllegalArgumentException("记忆查询过长");
-                            }
-
-                            String augmented =
-                                    memories.augment(
-                                            identity(token, "GET /internal/chat/visual-memory"),
-                                            query,
-                                            8);
-                            String context =
-                                    augmented.equals(query)
-                                            ? ""
-                                            : augmented.substring(query.length());
-
-                            return Map.<String, Object>of(
-                                    "context", context, "hits", context.isBlank() ? 0 : 1);
-                        })
-                .subscribeOn(Schedulers.boundedElastic());
+    @PostMapping("/visual-memory")
+    public Mono<VisionMemoryService.SearchResult> semanticMemory(@RequestHeader("X-Internal-Principal") String token,@RequestBody MemoryQuery request) {
+        ChatIdentity owner=identity(token,"POST /internal/chat/visual-memory");
+        if(request.callId()==null||!request.callId().matches("[A-Za-z0-9_.:-]{1,128}"))throw new IllegalArgumentException("视觉记忆调用标识无效");
+        return Mono.fromCallable(()->memories.search(owner,request.query(),8,request.callId(),request.tokenBudget())).subscribeOn(Schedulers.boundedElastic());
     }
+    public record MemoryQuery(String callId,String query,Long tokenBudget) {}
 }
