@@ -16,6 +16,7 @@ public final class GalleryMarkdownParser {
     private static final Pattern IMAGE = Pattern.compile("!\\[[^\\]]*]\\([^)]*\\)|<img\\b[^>]*>", Pattern.CASE_INSENSITIVE);
     private static final Pattern IMAGE_PATH = Pattern.compile("!\\[[^\\]]*]\\(([^)]+)\\)|<img\\b[^>]*?src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
     private static final Pattern SIZE = Pattern.compile("\\b\\d{2,5}[x×]\\d{2,5}\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VARIANT_METADATA = Pattern.compile("(?im)^\\s*(?:[-*]\\s*)?(?:output metadata|input reference|adapted(?: edit)? prompt|[^:\\n]*adaptation)\\s*:");
     private static final Set<String> LABELS = Set.of("prompt", "positive prompt", "negative prompt", "notes", "metadata", "parameters", "images", "image", "output", "input");
     private final Parser parser = Parser.builder().build();
 
@@ -65,6 +66,7 @@ public final class GalleryMarkdownParser {
                 String label = title.toLowerCase(Locale.ROOT).replaceAll(":$", "");
                 if (entry != null && LABELS.contains(label)) {
                     flushUnfenced(entry, category, source, commit, documents, issues);
+                    if (label.equals("output") || label.equals("input")) entry.backfillAllowed = false;
                     entry.readingPrompt = label.equals("prompt") || label.equals("positive prompt");
                     continue;
                 }
@@ -89,8 +91,12 @@ public final class GalleryMarkdownParser {
                 collectImages(entry, render(node));
             } else {
                 String rendered = render(node);
-                collectImages(entry, rendered);
-                metadata(entry, rendered);
+                var boundary = VARIANT_METADATA.matcher(rendered);
+                if (boundary.find()) {
+                    applyMetadata(entry, rendered.substring(0, boundary.start()));
+                    entry.backfillAllowed = false;
+                    applyMetadata(entry, rendered.substring(boundary.start()));
+                } else applyMetadata(entry, rendered);
             }
         }
         finish(entry, category, source, commit, documents, issues);
@@ -103,6 +109,13 @@ public final class GalleryMarkdownParser {
         if (entry == null) return;
         flushUnfenced(entry, category, source, commit, documents, issues);
         if (entry.prompts == 0) issues.add(issue(source, entry, "NO_PROMPT", "Entry contains no complete prompt body"));
+        // Metadata may follow a complete fence; diagnose only after the entire entry was read.
+        for (Document document : entry.entryDocuments) {
+            for (String field : List.of("size", "quality", "tags", "image_urls")) {
+                if (missing(document.getMetadata().get(field)))
+                    issues.add(issue(source, entry, "MISSING_FIELD", field + " is not declared by upstream; retained empty"));
+            }
+        }
     }
 
     private static void flushUnfenced(Entry e, String category, String source, String commit,
@@ -127,14 +140,28 @@ public final class GalleryMarkdownParser {
         metadata.put("attribution", GallerySource.ATTRIBUTION); metadata.put("content_hash", hash(clean));
         metadata.put("image_urls", new ArrayList<>(e.images));
         metadata.putIfAbsent("tags", List.of()); metadata.putIfAbsent("size", ""); metadata.putIfAbsent("quality", "");
-        for (String field : List.of("size", "quality", "tags", "image_urls")) {
-            Object value = metadata.get(field);
-            if (value == null || value.equals("") || value instanceof Collection<?> c && c.isEmpty())
-                issues.add(issue(source, e, "MISSING_FIELD", field + " is not declared by upstream; retained empty"));
-        }
         String id = UUID.nameUUIDFromBytes((category + "\n" + clean).getBytes(StandardCharsets.UTF_8)).toString();
-        if (documents.putIfAbsent(id, new Document(id, clean, metadata)) != null)
+        Document document = new Document(id, clean, metadata);
+        e.entryDocuments.add(document); e.lastDocument = document; e.backfillAllowed = true;
+        if (documents.putIfAbsent(id, document) != null)
             issues.add(issue(source, e, "DUPLICATE", "Repeated content in category skipped; stable id " + id));
+    }
+
+    private static void applyMetadata(Entry entry, String rendered) {
+        collectImages(entry, rendered);
+        metadata(entry, rendered);
+        backfillTrailingMetadata(entry);
+    }
+
+    private static void backfillTrailingMetadata(Entry entry) {
+        if (!entry.backfillAllowed || entry.lastDocument == null) return;
+        var target = entry.lastDocument.getMetadata();
+        entry.metadata.forEach((field, value) -> { if (missing(target.get(field))) target.put(field, value); });
+        target.put("image_urls", new ArrayList<>(entry.images));
+    }
+
+    private static boolean missing(Object value) {
+        return value == null || value.equals("") || value instanceof Collection<?> collection && collection.isEmpty();
     }
 
     private static void metadata(Entry entry, String block) {
@@ -205,6 +232,8 @@ public final class GalleryMarkdownParser {
     }
     private static final class Entry {
         final String title; final int level; int prompts; boolean readingPrompt;
+        boolean backfillAllowed; Document lastDocument;
+        final List<Document> entryDocuments = new ArrayList<>();
         final Map<String, Object> metadata = new LinkedHashMap<>();
         final Set<String> images = new LinkedHashSet<>();
         final StringBuilder unfenced = new StringBuilder();

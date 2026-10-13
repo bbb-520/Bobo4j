@@ -58,6 +58,7 @@ class GalleryMarkdownParserTest {
                 """, "abc");
         assertThat(report.entries()).isEqualTo(3);
         assertThat(report.documents()).hasSize(2);
+        assertThat(report.documents().getFirst().getMetadata()).containsEntry("quality", "").containsEntry("size", "1024x1024");
         assertThat(report.documents().get(1).getMetadata()).containsEntry("quality", "high").containsEntry("size", "2048x2048");
         assertThat(report.duplicates()).isEqualTo(1);
         assertThat(report.issues()).anyMatch(i -> i.code().equals("NO_PROMPT"));
@@ -82,6 +83,51 @@ class GalleryMarkdownParserTest {
         assertThat(report.documents()).hasSize(1);
         assertThat(report.documents().getFirst().getText()).isEqualTo("Paint a mountain.\nKeep soft edges.");
         assertThat(report.documents().getFirst().getMetadata()).containsEntry("quality", "high").containsEntry("tags", List.of("landscape", "paint"));
+    }
+
+    @Test void backfillsTrailingMetadataAndImagesBeforeReportingMissingFields() {
+        var report=parser.parse("art","gallery-art.md","""
+                # Art
+                ### No. 1 · Tree
+                ```text
+                Draw a tree.
+                ```
+                - Tags: foo, botanical
+                - Quality: high
+                - Size: 1024x1024
+                - Image: `docs/tree.png`
+
+                ![alternate preview](https://example.org/tree.png)
+                ""","abc");
+        var doc=report.documents().getFirst();
+        assertThat(doc.getText()).isEqualTo("Draw a tree.");
+        assertThat(doc.getMetadata()).containsEntry("tags",List.of("foo","botanical"))
+                .containsEntry("quality","high").containsEntry("size","1024x1024")
+                .containsEntry("image_urls",List.of("docs/tree.png","https://example.org/tree.png"));
+        assertThat(report.issues()).noneMatch(issue->issue.code().equals("MISSING_FIELD"));
+        assertThat(doc.getId()).isEqualTo(parser.parse("art","moved.md","## New title\n```text\nDraw a tree.\n```","new").documents().getFirst().getId());
+    }
+
+    @Test void separatesTrailingFieldsFromNextVariantWithinOneMetadataList() {
+        var report=parser.parse("isometric","gallery-isometric.md","""
+                # Isometric
+                ### No. 54 · Cafe
+                ```text
+                A cafe.
+                ```
+                - Size: 1024x1024
+                - Quality: low
+                - Tags: cafe
+                - Image: docs/cafe.png
+                - Output metadata: `high` · `2048x2048`
+                - Adapted edit prompt: Curated
+                ```text
+                A cafe at night.
+                ```
+                ""","abc");
+        assertThat(report.documents().getFirst().getMetadata()).containsEntry("size","1024x1024").containsEntry("quality","low").containsEntry("tags",List.of("cafe"));
+        assertThat(report.documents().get(1).getMetadata()).containsEntry("size","2048x2048").containsEntry("quality","high");
+        assertThat(report.issues()).noneMatch(issue->issue.code().equals("MISSING_FIELD"));
     }
 
     @Test void discoversOnlyLocalLinkedCategoriesAndRejectsEscapingPaths() throws Exception {
