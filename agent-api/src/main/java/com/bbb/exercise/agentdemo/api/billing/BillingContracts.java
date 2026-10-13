@@ -67,6 +67,8 @@ public final class BillingContracts {
     /** 状态变更请求携带的尝试代次，用于拒绝过期执行者的操作。 */
     public record AttemptAction(int generation) {}
 
+    public record AttemptRejection(int generation, String evidence, boolean retainForFallback) {}
+
     /** 单次尝试的结果回执，关联执行代次、生成内容和供应商实测用量。 */
     public record AttemptReceipt(
             String role,

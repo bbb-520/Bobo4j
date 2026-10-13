@@ -340,11 +340,14 @@ public class DocumentAnswerService {
                                                             model
                                     && model.code().equals("MODEL_TOKEN_BUDGET");
 
+            boolean definite = error instanceof RagException rag && rag.code().equals("ANSWER_EVALUATION_UNAVAILABLE")
+                    || error instanceof com.bbb.exercise.agentdemo.runtime.client.ModelCallClient.ModelCallException model
+                    && Set.of("PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_INTERRUPTED").contains(model.code());
             repository.answerError(
                     who,
                     request,
                     lease.fence(),
-                    budget ? "WAITING_FOR_BUDGET" : "WAITING_FOR_RECONCILIATION");
+                    budget ? "WAITING_FOR_BUDGET" : definite ? "FAILED" : "WAITING_FOR_RECONCILIATION");
 
             throw error;
         } finally {

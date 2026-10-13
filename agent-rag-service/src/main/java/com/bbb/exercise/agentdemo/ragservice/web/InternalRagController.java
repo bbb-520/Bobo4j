@@ -90,6 +90,7 @@ public class InternalRagController {
                                                     Schedulers.boundedElastic()
                                                             .schedule(
                                                                     () -> {
+                                                                        var lastEvent = new java.util.concurrent.atomic.AtomicReference<GenerationEvent>();
                                                                         try {
                                                                             var version =
                                                                                     new java.util
@@ -129,6 +130,7 @@ public class InternalRagController {
                                                                                                                                         event
                                                                                                                                                 .type())
                                                                                                                                 .build());
+                                                                                                        lastEvent.set(event);
                                                                                                     });
 
                                                                             if (!sink
@@ -169,7 +171,15 @@ public class InternalRagController {
                                                                         } catch (Throwable error) {
                                                                             if (!sink
                                                                                     .isCancelled()) {
-                                                                                sink.error(error);
+                                                                                var emitted=lastEvent.get();
+                                                                                if(emitted==null) sink.error(error);
+                                                                                else {
+                                                                                    String code=error instanceof RagException rag?rag.code()
+                                                                                            :error instanceof com.bbb.exercise.agentdemo.runtime.client.ModelCallClient.ModelCallException model?model.code():"RAG_STREAM_FAILED";
+                                                                                    var failure=new GenerationEvent("error",emitted.generationVersion(),Map.of("code",code,"message","文档回答暂时无法完成，已完成步骤已保留。可以稍后重试。"));
+                                                                                    sink.next(ServerSentEvent.<GenerationEvent>builder(failure).event("error").build());
+                                                                                    sink.complete();
+                                                                                }
                                                                             }
                                                                         }
                                                                     });

@@ -84,8 +84,9 @@ public class ImageJobWorker {
 
                 if (state != null
                         && ("REFUNDED".equals(state.status())
+                                || "ABANDONED".equals(state.status())
                                 || "CANCELLED".equals(state.status()))) {
-                    jobs.fail(job.id(), owner, "消费已取消或退款", 1);
+                    jobs.fail(job.id(), owner, "调用已结束，占用已解除；请重新提交图片创作", 1);
                     return;
                 }
             }

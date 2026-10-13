@@ -374,7 +374,10 @@ public class BillingService {
     }
 
     // 5. 预留回收：回收满足过期条件的未完成预留。
-    /** Only undispatched reservations can be safely released after a crashed caller. */
+    @org.springframework.beans.factory.annotation.Value("${app.billing.image-recovery-stale-seconds:600}")
+    private int imageRecoverySeconds = 600;
+
+    /** Undispatched calls cancel; stale image calls retain unknown evidence at platform expense. */
     public void expireReservations() {
         var rows =
                 jdbc.queryForList(
@@ -391,6 +394,23 @@ public class BillingService {
                             cancel(user, id);
                         }
                     });
+        }
+
+        int age = Math.max(600, imageRecoverySeconds);
+        var images = jdbc.queryForList("SELECT id,user_id FROM model_usage WHERE capability='IMAGE' AND status IN ('DISPATCHED','UNKNOWN') AND updated_at<TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP) ORDER BY updated_at LIMIT 100", -age);
+        for (var row : images) {
+            try {
+                tx.executeWithoutResult(s -> {
+                    String user=(String)row.get("user_id"),id=(String)row.get("id");
+                    var wallet=walletRow(user,true);var usage=usageRow(user,id);
+                    if(jdbc.queryForObject("SELECT COUNT(*) FROM model_usage WHERE id=? AND status IN ('DISPATCHED','UNKNOWN') AND updated_at<TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP)",Integer.class,id,-age)!=1)return;
+                    jdbc.update("INSERT INTO usage_reconciliation(usage_id,action,actor,reason) VALUES (?,'ABANDONED','SYSTEM',?)",id,"IMAGE_EXECUTION_DEADLINE_EXCEEDED; platform_estimated_exposure_micros="+num(usage,"image_price_micros"));
+                    if(id.equals(wallet.activeUsageId()))jdbc.update("UPDATE billing_wallet SET reserved_micros=reserved_micros-?,free_images=free_images+?,active_usage_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND active_usage_id=?",num(usage,"reserved_micros"),Boolean.TRUE.equals(usage.get("trial"))?1:0,user,id);
+                    jdbc.update("UPDATE model_usage SET status='ABANDONED',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?",id,user);
+                });
+            } catch(RuntimeException error) {
+                org.slf4j.LoggerFactory.getLogger(BillingService.class).warn("Image recovery deferred for {}: {}",row.get("id"),error.getClass().getSimpleName());
+            }
         }
     }
 

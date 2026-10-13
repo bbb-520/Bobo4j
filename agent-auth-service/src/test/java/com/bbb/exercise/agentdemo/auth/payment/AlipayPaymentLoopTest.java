@@ -317,6 +317,8 @@ class AlipayPaymentLoopTest {
 
     @Test void prepayAndRecoveryLeasesExcludeEachOther() {
         var a = orders.create("alice","prepay-lease","ALIPAY",123);
+        // Make eligibility explicit; H2 can round the millisecond default slightly into the future.
+        db.update("UPDATE payment_order SET next_check_at=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP) WHERE id=?",a.id());
         String prepay = orders.acquirePrepay("alice",a.id());
         assertThat(orders.acquireSync(a.id())).isNull();
         orders.releasePrepay("alice",a.id(),prepay);
@@ -487,6 +489,7 @@ class AlipayPaymentLoopTest {
         var order=order();orders.credit(order.id(),"ALIPAY","ali-trade",123,"CNY");due(order.id());
         var queryOwner=orders.acquireSync(order.id());assertThat(queryOwner).isNotNull();
         var service=refundService();var refund=service.begin(order.id(),"admin","full refund");
+        db.update("UPDATE payment_refund SET next_check_at=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP) WHERE id=?",refund.id());
         var refundOwner=service.acquire(refund.id());service.succeed(refund.id(),refundOwner);
         assertThat(orders.observeQuery(order.id(),queryOwner,"TRADE_SUCCESS","ali-trade",123,123L,123L,123L,0L,"test-app","test-seller")).isFalse();
         assertThat(orders.find(order.id()).status()).isEqualTo("REFUNDED");

@@ -174,7 +174,7 @@ public class RagRepository {
                         return document(who, id);
                     }
 
-                    boolean rebuild = "EMBEDDING_REBUILD_REQUIRED".equals(row.get("error"));
+                    boolean rebuild = "WAITING_FOR_RECONCILIATION".equals(row.get("status")) || Set.of("EMBEDDING_REBUILD_REQUIRED","MODEL_OUTCOME_UNKNOWN","MODEL_CALL_INTERRUPTED","PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_RECONCILIATION_REQUIRED").contains(String.valueOf(row.get("error")));
                     String stage =
                             !rebuild && "READY".equals(row.get("index_status"))
                                     ? "SUMMARIZING"
@@ -188,7 +188,7 @@ public class RagRepository {
                                 next,
                                 id);
                         db.update(
-                                "UPDATE rag_document SET processing_version=?,summary_covered=0 WHERE document_id=?",
+                                "UPDATE rag_document SET processing_version=?,summary_covered=0,index_status=CASE WHEN index_status IN ('READY','REBUILDING') THEN 'REBUILDING' ELSE 'PENDING' END WHERE document_id=?",
                                 next,
                                 id);
                     }
@@ -696,7 +696,7 @@ public class RagRepository {
         for (var entry : versions.entrySet()) {
             DocumentView d = document(who, entry.getKey());
 
-            if (!d.indexStatus().equals("READY") || d.indexVersion() != entry.getValue()) {
+            if (!Set.of("READY","REBUILDING").contains(d.indexStatus()) || d.indexVersion() != entry.getValue()) {
                 throw conflict("DOCUMENT_VERSION_CHANGED");
             }
         }
@@ -735,7 +735,7 @@ public class RagRepository {
 
             var row = documents.getFirst();
 
-            if (!"READY".equals(row.get("index_status"))
+            if (!Set.of("READY","REBUILDING").contains(row.get("index_status"))
                     || ((Number) row.get("index_version")).intValue() != entry.getValue()) {
                 throw conflict("DOCUMENT_VERSION_CHANGED");
             }

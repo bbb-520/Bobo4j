@@ -17,7 +17,7 @@ public class RagExceptionHandler {
 
     @ExceptionHandler(ModelCallClient.ModelCallException.class)
     public ResponseEntity<Map<String, String>> model(ModelCallClient.ModelCallException e) {
-        return ResponseEntity.status(e.status() == 409 ? 409 : e.status() == 429 ? 429 : 503)
+        return ResponseEntity.status(e.status() == 400 ? 400 : e.status() == 402 ? 402 : e.status() == 409 ? 409 : e.status() == 429 ? 429 : 503)
                 .body(Map.of("code", e.code(), "message", e.getMessage()));
     }
 

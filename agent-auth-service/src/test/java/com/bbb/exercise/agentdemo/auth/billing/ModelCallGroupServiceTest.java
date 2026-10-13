@@ -29,7 +29,7 @@ class ModelCallGroupServiceTest {
         new ResourceDatabasePopulator(
                         new ClassPathResource("db/migration/V3__billing.sql"),
                         new ClassPathResource("db/migration/V5__model_call_groups.sql"),
-                        new ClassPathResource("db/migration/V6__free_tokens.sql"))
+                        new ClassPathResource("db/migration/V6__free_tokens.sql"),new ClassPathResource("db/migration/V10__model_call_recovery.sql"))
                 .execute(ds);
         var tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
 
@@ -49,6 +49,77 @@ class ModelCallGroupServiceTest {
 
     AttemptReserve fallback() {
         return new AttemptReserve("FALLBACK", "QWEN", "qwen-plus", "https://provider/v1", "key1");
+    }
+
+    @Test void staleUnknownGroupReleasesWalletWithoutInventingUsageOrChargingUser() {
+        service.reserve("alice","tenant",request("lost","hash"));
+        service.attempt("alice","tenant","lost",primary());service.dispatch("alice","tenant","lost","PRIMARY");
+        service.unknown("alice","tenant","lost","PRIMARY");
+        jdbc.update("UPDATE model_call_group SET updated_at=TIMESTAMPADD(MINUTE,-10,CURRENT_TIMESTAMP) WHERE id='lost'");
+        service.recoverStale();service.recoverStale();
+        assertThat(legacy.wallet("alice").activeUsageId()).isNull();
+        assertThat(legacy.wallet("alice").reservedMicros()).isZero();
+        assertThat(legacy.wallet("alice").balanceMicros()).isEqualTo(2000000L);
+        assertThat(service.state("alice","tenant","lost").status()).isEqualTo("ABANDONED");
+        assertThat(jdbc.queryForObject("SELECT input_tokens FROM model_call_attempt WHERE group_id='lost'",Long.class)).isNull();
+        assertThat(service.reserve("alice","tenant",request("new","hash")).status()).isEqualTo("RESERVED");
+        service.receipt("alice","tenant","lost",new AttemptReceipt("PRIMARY","{}",10L,5L,"late",1));
+        assertThat(legacy.wallet("alice").activeUsageId()).isEqualTo("new");
+        assertThat(service.state("alice","tenant","lost").status()).isEqualTo("ABANDONED");
+        assertThatThrownBy(()->service.finish("alice","tenant","lost")).isInstanceOf(BillingException.class);
+        assertThat(legacy.wallet("alice").balanceMicros()).isEqualTo(2000000L);
+    }
+
+    @Test void delayedUnknownCannotResurrectAnAbandonedGroup() {
+        service.reserve("alice","tenant",request("delayed","hash"));service.attempt("alice","tenant","delayed",primary());
+        service.dispatch("alice","tenant","delayed","PRIMARY");
+        jdbc.update("UPDATE model_call_group SET updated_at=TIMESTAMPADD(MINUTE,-10,CURRENT_TIMESTAMP)");service.recoverStale();
+        service.unknown("alice","tenant","delayed","PRIMARY",1);service.recoverStale();
+        assertThat(service.state("alice","tenant","delayed").status()).isEqualTo("ABANDONED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM model_call_recovery WHERE action='ABANDONED'",Integer.class)).isEqualTo(1);
+        assertThat(service.reserve("alice","tenant",request("fresh","hash")).status()).isEqualTo("RESERVED");
+    }
+
+    @Test void recoveryDoesNotAbandonLiveCallsAndFinishesDurableReceipts() {
+        service.reserve("alice","tenant",request("live","hash"));service.attempt("alice","tenant","live",primary());
+        service.dispatch("alice","tenant","live","PRIMARY");service.recoverStale();
+        assertThat(legacy.wallet("alice").activeUsageId()).isEqualTo("live");
+        service.receipt("alice","tenant","live",new AttemptReceipt("PRIMARY","{}",10L,5L,"ok",1));
+        jdbc.update("UPDATE model_call_group SET updated_at=TIMESTAMPADD(MINUTE,-10,CURRENT_TIMESTAMP)");
+        service.recoverStale();
+        assertThat(service.state("alice","tenant","live").status()).isEqualTo("SUCCEEDED");
+        assertThat(legacy.wallet("alice").activeUsageId()).isNull();
+    }
+
+    @Test void delayedCancelCannotRenewAnAbandonedReservation() {
+        service.reserve("alice","tenant",request("expired","hash"));
+        service.attempt("alice","tenant","expired",primary());
+        jdbc.update("UPDATE model_call_group SET updated_at=TIMESTAMPADD(MINUTE,-10,CURRENT_TIMESTAMP)");
+        service.recoverStale();service.cancel("alice","tenant","expired",1);
+        assertThat(service.reserve("alice","tenant",request("expired","hash")).status()).isEqualTo("ABANDONED");
+        assertThat(legacy.wallet("alice").activeUsageId()).isNull();
+    }
+
+    @Test void definiteRejectionReleasesFundsAndFencesLaterDispatch() {
+        service.reserve("alice","tenant",request("reject","hash"));service.attempt("alice","tenant","reject",primary());
+        service.dispatch("alice","tenant","reject","PRIMARY");
+        service.reject("alice","tenant","reject","PRIMARY",1,"HTTP_401");
+        service.reject("alice","tenant","reject","PRIMARY",1,"HTTP_401");
+        assertThat(legacy.wallet("alice").activeUsageId()).isNull();
+        assertThat(service.state("alice","tenant","reject").unknownTokens()).isZero();
+        assertThatThrownBy(()->service.dispatch("alice","tenant","reject","PRIMARY",1)).isInstanceOf(BillingException.class);
+    }
+
+    @Test void cancellingUndispatchedFallbackReleasesPlatformAllocationExactlyOnce() {
+        service.reserve("alice","tenant",request("cancel-backup","hash"));
+        service.attempt("alice","tenant","cancel-backup",primary());service.dispatch("alice","tenant","cancel-backup","PRIMARY");
+        service.reject("alice","tenant","cancel-backup","PRIMARY",1,"HTTP_401",true);
+        service.attempt("alice","tenant","cancel-backup",fallback());
+        assertThat(jdbc.queryForObject("SELECT allocated_micros FROM model_fault_budget",Long.class)).isPositive();
+        service.cancel("alice","tenant","cancel-backup",1);service.cancel("alice","tenant","cancel-backup",1);
+        assertThat(jdbc.queryForObject("SELECT allocated_micros FROM model_fault_budget",Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT unresolved FROM model_fault_budget",Long.class)).isZero();
+        assertThat(legacy.wallet("alice").activeUsageId()).isNull();
     }
 
     @Test

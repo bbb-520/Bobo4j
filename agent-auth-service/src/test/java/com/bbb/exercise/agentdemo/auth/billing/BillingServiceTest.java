@@ -62,6 +62,24 @@ class BillingServiceTest {
     }
 
     @Test
+    void staleImageCreationCannotPermanentlyLockChatOrChargeANewerRequest() {
+        billing.reserve("alice",new Reserve("lost-image","IMAGE","qwen-image"));billing.dispatch("alice","lost-image");
+        billing.unknown("alice","lost-image");billing.expireReservations();
+        assertThat(billing.wallet("alice").activeUsageId()).isEqualTo("lost-image");
+        jdbc.update("UPDATE model_usage SET updated_at=TIMESTAMPADD(MINUTE,-20,CURRENT_TIMESTAMP) WHERE id='lost-image'");
+        billing.expireReservations();billing.expireReservations();
+        assertThat(billing.status("alice","lost-image")).isEqualTo("ABANDONED");
+        assertThat(billing.wallet("alice").activeUsageId()).isNull();
+        assertThat(billing.wallet("alice").freeImages()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT input_tokens FROM model_usage WHERE id='lost-image'",Long.class)).isNull();
+        billing.reserve("alice",new Reserve("new-image","IMAGE","qwen-image"));
+        assertThatThrownBy(()->billing.settle("alice","lost-image",new Settlement(100L,200L,"late"))).isInstanceOf(BillingException.class);
+        assertThat(billing.wallet("alice").activeUsageId()).isEqualTo("new-image");
+        assertThat(billing.wallet("alice").balanceMicros()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM usage_reconciliation WHERE action='ABANDONED'",Long.class)).isEqualTo(1);
+    }
+
+    @Test
     void embeddingRerankAndEvaluationUseMeasuredTokenBilling() {
         jdbc.update("UPDATE billing_wallet SET balance_micros=2000000 WHERE user_id='alice'");
 

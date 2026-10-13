@@ -76,8 +76,9 @@ class ImageJobWorkerRecoveryTest {
         verify(billing, never()).dispatch(any(), anyString());
     }
 
-    @Test
-    void refundedReceiptTerminatesAndReleasesQueueRatherThanRetryingForever() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"REFUNDED","CANCELLED","ABANDONED"})
+    void endedReceiptTerminatesAndReleasesQueueRatherThanRetryingForever(String status) throws Exception {
         var worker = worker();
 
         when(jobs.receipt(any(), eq("job")))
@@ -85,11 +86,12 @@ class ImageJobWorkerRecoveryTest {
                         new ImageJobService.Receipt(
                                 "https://image", null, null, "rationale", "provider-id"));
         when(billing.status(any(), eq("job")))
-                .thenReturn(Mono.just(new BillingClient.CallStatus("REFUNDED")));
+                .thenReturn(Mono.just(new BillingClient.CallStatus(status)));
         worker.poll();
         verify(jobs).fail(eq("job"), anyString(), anyString(), eq(1));
         verify(jobs, never()).defer(anyString(), anyString());
         verify(storage, never()).copyRemoteImageToObject(anyString(), anyString());
+        verify(billing, never()).settle(any(), anyString(), any());
         verifyNoInteractions(providers);
     }
 

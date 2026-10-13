@@ -40,6 +40,22 @@ class GroundingEvaluatorTest {
         assertThat(result.outputTokens()).isEqualTo(5);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"MODEL_OUTCOME_UNKNOWN","AUTH_UNAVAILABLE","ACCOUNTING_UNAVAILABLE"})
+    void judgeTransportFailuresArePropagatedRatherThanReportedAsMalformedVerdicts(String code) {
+        RuntimeException failure=switch(code) {
+            case "AUTH_UNAVAILABLE" -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+            case "ACCOUNTING_UNAVAILABLE" -> new com.bbb.exercise.agentdemo.ragservice.domain.RagException("MODEL_ACCOUNTING_UNAVAILABLE",org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+            default -> new com.bbb.exercise.agentdemo.runtime.client.ModelCallClient.ModelCallException("MODEL_OUTCOME_UNKNOWN",false,409);
+        };
+        var gateway=new FakeGateway() {
+            @Override public Completion complete(ChatIdentity identity,String composite,String call,String mode,String system,String user,boolean fallback) {throw failure;}
+        };
+        var evaluator=new GroundingEvaluator(gateway,new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        assertThatThrownBy(()->evaluator.evaluate(who,"root","eval","Budget?",evidence,"Budget is97 [S1]."))
+                .isSameAs(failure);
+    }
+
     @Test
     void malformedJudgeResultIsErrorNeverPass() {
         models.responses.put("eval:relevance", new Completion("MAYBE", 11, 1, "judge", false));

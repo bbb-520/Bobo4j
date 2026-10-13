@@ -100,6 +100,13 @@ public class BillingClient {
         return groupAction(i, call, role, "unknown", generation);
     }
 
+    public Mono<GroupState> rejectAttempt(ChatIdentity i,String call,String role,int generation,String evidence) {
+        return rejectAttempt(i,call,role,generation,evidence,false);
+    }
+    public Mono<GroupState> rejectAttempt(ChatIdentity i,String call,String role,int generation,String evidence,boolean retainForFallback) {
+        return http.postAuth(path(i)+"/groups/"+id(call)+"/attempts/"+id(role)+"/reject",i.userId(),i.tenantId(),new AttemptRejection(generation,evidence,retainForFallback),GroupState.class);
+    }
+
     public Mono<Void> skipAttempt(ChatIdentity i, String call, String role, int generation) {
         return groupAction(i, call, role, "skip", generation);
     }

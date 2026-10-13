@@ -110,6 +110,7 @@ public class ModelCallClient {
             throw protocol("BILLING_UNAVAILABLE");
         }
 
+        if("ABANDONED".equals(group.status()))throw new ModelCallException("MODEL_CALL_INTERRUPTED",false,400);
         if (group.receipt() != null) {
             return Optional.of(replay(identity, callId, group, Completion.class));
         }
@@ -314,7 +315,7 @@ public class ModelCallClient {
             throw new ModelCallException("MODEL_TOKEN_BUDGET", false, 429);
         }
 
-        var selected = requireModel(identity, ModelCapability.parse(capability));
+        var selected = requireModel(identity,callId,group,ModelCapability.parse(capability));
         // 2.2.1. 备用限制：评估与决策不静默更换模型，其他模式仍受预算和调用条件限制。
         boolean allow =
                 fallback
@@ -371,7 +372,7 @@ public class ModelCallClient {
             }
 
             if (!allow || !failure.retryable || Thread.currentThread().isInterrupted()) {
-                if (failure.code.equals("CIRCUIT_OPEN")) {
+                {
                     try {
                         billing.cancelGroup(identity, callId, group.generation())
                                 .block(Duration.ofSeconds(6));
@@ -384,7 +385,7 @@ public class ModelCallClient {
 
             var backup =
                     requireModel(
-                            identity,
+                            identity,callId,group,
                             "VISION".equals(mode)
                                     ? ModelCapability.VISION_FALLBACK
                                     : ModelCapability.FALLBACK);
@@ -425,7 +426,7 @@ public class ModelCallClient {
                                 group.generation(),
                                 Math.addExact(
                                         group.unknownTokens(),
-                                        failure.code.equals("CIRCUIT_OPEN") ? 0 : primaryBound));
+                                        Set.of("CIRCUIT_OPEN","PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED").contains(failure.code) ? 0 : primaryBound));
 
                 metrics.counter("ai.model.fallback", "reason", reason, "outcome", "success")
                         .increment();
@@ -475,7 +476,7 @@ public class ModelCallClient {
         long upper = TokenBudgetEstimator.embedding(texts);
 
         requireTokenBudget(identity, callId, g, tokenBudget, upper);
-        var model = requireModel(identity, ModelCapability.EMBEDDING);
+        var model = requireModel(identity,callId,g,ModelCapability.EMBEDDING);
         boolean dispatched = false, succeeded = false;
         long started = System.nanoTime();
 
@@ -596,7 +597,7 @@ public class ModelCallClient {
         long upper = TokenBudgetEstimator.rerank(query, documents);
 
         requireTokenBudget(identity, callId, g, tokenBudget, upper);
-        var model = requireModel(identity, ModelCapability.RERANK);
+        var model = requireModel(identity,callId,g,ModelCapability.RERANK);
         boolean dispatched = false, succeeded = false;
         long started = System.nanoTime();
 
@@ -791,7 +792,7 @@ public class ModelCallClient {
                                         }
 
                                         return response.bodyToMono(JsonNode.class).flux();
-                                    });
+                                    }).onErrorMap(ModelCallClient::providerTransportFailure);
             List<String> output =
                     frames.doOnNext(
                                     frame -> {
@@ -866,7 +867,7 @@ public class ModelCallClient {
 
             return completed;
         } catch (Exception error) {
-            var failure = unknown(i, id, role, error, generation, dispatched);
+            var failure = unknown(i, id, role, error, generation, dispatched, !backup);
 
             if (dispatched && !Thread.currentThread().isInterrupted()) {
                 events.accept(
@@ -914,6 +915,7 @@ public class ModelCallClient {
             if (g == null) {
                 throw protocol("BILLING_UNAVAILABLE");
             }
+            if("ABANDONED".equals(g.status()))throw new ModelCallException("MODEL_CALL_INTERRUPTED",false,400);
 
             if (expectedGeneration != null && g.generation() != expectedGeneration) {
                 throw new ModelCallException("MODEL_OUTCOME_UNKNOWN", false, 409);
@@ -1028,6 +1030,13 @@ public class ModelCallClient {
         }
     }
 
+    private AuthModelClient.SelectedModel requireModel(ChatIdentity i,String call,GroupState group,ModelCapability c) {
+        try {return requireModel(i,c);} catch(RuntimeException error) {
+            try {billing.cancelGroup(i,call,group.generation()).block(Duration.ofSeconds(6));}catch(Exception ignored){}
+            throw error;
+        }
+    }
+
     private AuthModelClient.SelectedModel requireModel(ChatIdentity i, ModelCapability c) {
         var m = models.resolve(i, c);
 
@@ -1055,6 +1064,7 @@ public class ModelCallClient {
                                                                 httpError(
                                                                         response.statusCode()
                                                                                 .value()))))
+                .onErrorMap(ModelCallClient::providerTransportFailure)
                 .timeout(timeout)
                 .block(timeout.plusSeconds(2));
     }
@@ -1067,10 +1077,18 @@ public class ModelCallClient {
             Exception error,
             int generation,
             boolean dispatched) {
-        boolean interrupted = Thread.interrupted();
+        return unknown(i,id,role,error,generation,dispatched,false);
+    }
 
+    private ModelCallException unknown(ChatIdentity i,String id,String role,Exception error,int generation,boolean dispatched,boolean retainForFallback) {
+        boolean interrupted = Thread.interrupted();
+        String evidence=definiteFailure(error);
+        boolean rejected=false;
         try {
-            if (dispatched) {
+            if(dispatched && evidence!=null) {
+                var state=billing.rejectAttempt(i,id,role,generation,evidence,retainForFallback).block(Duration.ofSeconds(6));
+                rejected=state!=null&&!"UNKNOWN".equals(state.status());
+            } else if (dispatched) {
                 billing.unknownAttempt(i, id, role, generation).block(Duration.ofSeconds(6));
             } else {
                 billing.cancelGroup(i, id, generation).block(Duration.ofSeconds(6));
@@ -1082,9 +1100,11 @@ public class ModelCallClient {
             }
         }
 
-        if (dispatched) {
+        if (dispatched && evidence==null) {
             metrics.counter("ai.model.unknown", "role", role).increment();
         }
+        if(dispatched && evidence!=null && !rejected)return new ModelCallException("MODEL_OUTCOME_UNKNOWN",false,409);
+        if(rejected) return new ModelCallException(evidence.equals("CONNECT_FAILED")?"PROVIDER_CONNECT_FAILED":"PROVIDER_REJECTED",error instanceof ModelCallException m?m.retryable:true,error instanceof ModelCallException m?m.status():503);
 
         if (interrupted || error instanceof java.util.concurrent.CancellationException) {
             return new ModelCallException("CANCELLED", false, 0);
@@ -1105,6 +1125,21 @@ public class ModelCallClient {
 
         return new ModelCallException(
                 "PROVIDER_TIMEOUT_OR_CONNECTION", dispatched, dispatched ? 0 : 409);
+    }
+
+    private static String definiteFailure(Throwable error) {
+        for(Throwable cause=error;cause!=null;cause=cause.getCause()) {
+            if(cause instanceof DefiniteProviderFailure failure)return "HTTP_"+failure.status();
+            if(cause instanceof ProviderConnectFailure)return "CONNECT_FAILED";
+        }
+        return null;
+    }
+
+    private static Throwable providerTransportFailure(Throwable error) {
+        for(Throwable cause=error;cause!=null;cause=cause.getCause()) {
+            if(cause instanceof java.net.ConnectException || cause instanceof java.net.UnknownHostException || cause instanceof java.net.http.HttpConnectTimeoutException || cause instanceof io.netty.channel.ConnectTimeoutException)return new ProviderConnectFailure();
+        }
+        return error;
     }
 
     private void recordDuration(
@@ -1201,6 +1236,7 @@ public class ModelCallClient {
     }
 
     private static ModelCallException httpError(int status) {
+        if(Set.of(400,401,403,404,405,413,422,429).contains(status))return new DefiniteProviderFailure(status);
         return new ModelCallException(
                 "PROVIDER_ERROR", status == 401 || status == 429 || status >= 500, status);
     }
@@ -1269,6 +1305,14 @@ public class ModelCallClient {
     }
 
     /** 统一模型调用异常，携带错误码、HTTP 状态及重试判断信息。 */
+    private static class ProviderConnectFailure extends ModelCallException {
+        ProviderConnectFailure(){super("PROVIDER_CONNECT_FAILED",true,503);}
+    }
+
+    private static class DefiniteProviderFailure extends ModelCallException {
+        DefiniteProviderFailure(int status){super("PROVIDER_REJECTED",status==401||status==429,status);}
+    }
+
     public static class ModelCallException extends RuntimeException {
         private final String code;
         private final boolean retryable;

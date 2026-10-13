@@ -169,7 +169,9 @@ public class ExecutionClient {
                                     .contains(type)) {
                                 onEvent.accept(event);
                             } else if (type.equals("error")) {
-                                sink.error(new RemoteFailure(503));
+                                Object payload=event.get("payload");
+                                String code=payload instanceof Map<?,?> p?String.valueOf(p.get("code")):"";
+                                sink.error(new RemoteFailure(503,safeFailureCode(code)));
                             }
                         })
                 .single()
@@ -208,12 +210,15 @@ public class ExecutionClient {
                 .map(body -> {
                     try {
                         // Fixed code only. Never propagate provider bodies, URLs or exception messages.
-                        if (status == 400 && "IMAGE_ATTACHMENT_UNAVAILABLE".equals(json.readTree(body).path("code").asString())) {
-                            return new RemoteFailure(status, "IMAGE_ATTACHMENT_UNAVAILABLE");
-                        }
+                        String code=safeFailureCode(json.readTree(body).path("code").asString());
+                        if(code!=null)return new RemoteFailure(status,code);
                     } catch (RuntimeException ignored) {}
                     return new RemoteFailure(status);
                 }).onErrorReturn(new RemoteFailure(status));
+    }
+
+    private static String safeFailureCode(String code) {
+        return Set.of("IMAGE_ATTACHMENT_UNAVAILABLE","PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_INTERRUPTED","ANSWER_EVALUATION_UNAVAILABLE").contains(String.valueOf(code))?code:null;
     }
 
     /** 远端 HTTP 调用失败，保留状态码并判断是否属于可恢复故障。 */

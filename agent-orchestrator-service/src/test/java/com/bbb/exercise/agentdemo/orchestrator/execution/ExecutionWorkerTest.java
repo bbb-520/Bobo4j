@@ -440,8 +440,9 @@ class ExecutionWorkerTest {
                 .contains("fallback_started", "answer_committed");
     }
 
-    @Test
-    void dispatchedFailurePreservesCheckpointAndWaitsInsteadOfRetrying() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"UNKNOWN","PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_INTERRUPTED","ANSWER_EVALUATION_UNAVAILABLE"})
+    void dispatchedFailurePreservesCheckpointAndOnlyAmbiguousOutcomesWait(String code) {
         var ds = new JdbcDataSource();
 
         ds.setURL("jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1");
@@ -461,7 +462,7 @@ class ExecutionWorkerTest {
                         new ExecutionStore.Create("key", "CHAT", "question", null, null, false));
 
         when(client.stream(eq(owner), any(), any()))
-                .thenReturn(CompletableFuture.failedFuture(new ExecutionClient.RemoteFailure(503)));
+                .thenReturn(CompletableFuture.failedFuture(new ExecutionClient.RemoteFailure(503,code.equals("UNKNOWN")?null:code)));
         var worker = new ExecutionWorker(store, client, new SimpleMeterRegistry());
 
         try {
@@ -471,7 +472,7 @@ class ExecutionWorkerTest {
         }
 
         assertThat(store.get(owner, run.view().executionId()).view().status())
-                .isEqualTo("WAITING_FOR_RECONCILIATION");
+                .isEqualTo(code.equals("UNKNOWN")?"WAITING_FOR_RECONCILIATION":"FAILED");
         assertThat(store.claim("other")).isEmpty();
     }
 }

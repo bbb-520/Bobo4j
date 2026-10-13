@@ -15,6 +15,38 @@ import static org.assertj.core.api.Assertions.*;
 /** 验证跨服务流及时转发增量和替换事件，且缺少持久化回执时不能提交答案。 */
 class ExecutionStreamingTest {
     @Test
+    void definiteFailureCodesSurviveHttpAndSseWithoutExposingProviderBodies() throws Exception {
+        var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/internal/chat/stream",exchange->{
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes="data: {\"type\":\"error\",\"payload\":{\"code\":\"PROVIDER_CONNECT_FAILED\",\"message\":\"private provider details\"}}\n\n".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type","text/event-stream");exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()){out.write(bytes);}
+        });
+        server.createContext("/internal/rag/answer-stream",exchange->{
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes="data: {\"type\":\"error\",\"payload\":{\"code\":\"ANSWER_EVALUATION_UNAVAILABLE\",\"message\":\"private provider details\"}}\n\n".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type","text/event-stream");exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()){out.write(bytes);}
+        });
+        server.createContext("/reject",exchange->{
+            byte[] bytes="{\"code\":\"PROVIDER_REJECTED\",\"detail\":\"private provider details\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(503,bytes.length);try(var out=exchange.getResponseBody()){out.write(bytes);}
+        });server.start();
+        try {
+            String base="http://127.0.0.1:"+server.getAddress().getPort();
+            var client=new ExecutionClient(WebClient.builder(),new PrincipalKeyRing("current="+Base64.getEncoder().encodeToString(new byte[32]),"current"),JsonMapper.builder().build(),base,base,base,base);
+            var who=new ChatIdentity("t","u",true);
+            for(var entry:Map.of("PROVIDER_CONNECT_FAILED",client.stream(who,Map.of("callId","c"),e->{}),"PROVIDER_REJECTED",client.get(who,"chat","/reject"),"ANSWER_EVALUATION_UNAVAILABLE",client.streamRag(who,Map.of("callId","r"),e->{})).entrySet()) {
+                assertThatThrownBy(()->entry.getValue().get(10,TimeUnit.SECONDS)).satisfies(error->{
+                    assertThat(error.getCause()).isInstanceOf(ExecutionClient.RemoteFailure.class);
+                    var failure=(ExecutionClient.RemoteFailure)error.getCause();assertThat(failure.code).isEqualTo(entry.getKey());
+                    assertThat(failure.getMessage()).doesNotContain("private provider");
+                });
+            }
+        } finally {server.stop(0);}
+    }
+    @Test
     void forwardsDeltasAndReplacementBeforeDurableReceiptAndSignsTheStreamRoute() throws Exception {
         var keys =
                 new PrincipalKeyRing(

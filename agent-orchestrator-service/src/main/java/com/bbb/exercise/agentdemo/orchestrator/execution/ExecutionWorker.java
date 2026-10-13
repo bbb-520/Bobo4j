@@ -414,6 +414,12 @@ public class ExecutionWorker {
                 return;
             }
 
+            if(cause instanceof ExecutionClient.RemoteFailure remote && "ANSWER_EVALUATION_UNAVAILABLE".equals(remote.code)) {
+                safeTerminal(lease,"FAILED","文档答案校验暂时不可用，未发布未经核验的回答。可以重新发送问题。");return;
+            }
+            if(cause instanceof ExecutionClient.RemoteFailure remote && Set.of("PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_INTERRUPTED").contains(String.valueOf(remote.code))) {
+                safeTerminal(lease,"FAILED","本次调用未完成，账户不会永久占用；请重试或发送新消息");return;
+            }
             int status =
                     cause instanceof ExecutionClient.RemoteFailure remote ? remote.status : 503;
             String state =

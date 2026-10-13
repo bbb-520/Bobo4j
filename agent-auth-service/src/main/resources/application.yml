@@ -1,4 +1,8 @@
 spring:
+  task:
+    scheduling:
+      pool:
+        size: 3
   application:
     name: agent-auth-service
   config:
@@ -71,6 +75,9 @@ app:
     from: ${SMTP_FROM:}
     otp-secret: ${AUTH_OTP_SECRET:}
   billing:
+    recovery-stale-seconds: ${BILLING_RECOVERY_STALE_SECONDS:180}
+    recovery-delay-ms: ${BILLING_RECOVERY_DELAY_MS:15000}
+    image-recovery-stale-seconds: ${BILLING_IMAGE_RECOVERY_STALE_SECONDS:600}
     admin-user-ids: ${BILLING_ADMIN_USER_IDS:}
     token-price-per-1k-micros: ${BILLING_TOKEN_PRICE_PER_1K_MICROS:10000}
     text-reserve-micros: ${BILLING_TEXT_RESERVE_MICROS:200000}

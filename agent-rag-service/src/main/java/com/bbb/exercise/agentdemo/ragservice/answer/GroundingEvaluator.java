@@ -144,6 +144,9 @@ public class GroundingEvaluator {
 
             return result(
                     pass ? "PASS" : "FAIL", pass ? "SUPPORTED" : "FACT_SUPPORT_FAILED", usage);
+        } catch (JudgeCallFailure failure) {
+            // Transport and reconciliation failures retain their original unknown-usage semantics.
+            throw failure.failure;
         } catch (IllegalArgumentException citation) {
             if (citation.getMessage() != null
                     && Set.of(
@@ -162,12 +165,8 @@ public class GroundingEvaluator {
                 throw error;
             }
 
-            if (error
-                            instanceof
-                            com.bbb.exercise.agentdemo.runtime.client.ModelCallClient
-                                                    .ModelCallException
-                                            model
-                    && model.code().equals("MODEL_TOKEN_BUDGET")) {
+            if (error instanceof com.bbb.exercise.agentdemo.runtime.client.ModelCallClient.ModelCallException) {
+                // Preserve the transport's evidence: an unknown paid call is not a malformed verdict.
                 throw error;
             }
 
@@ -182,6 +181,19 @@ public class GroundingEvaluator {
 
     // 3. 评估调用：沿用复合预算，并为评估事件维护独立的生成版本。
     private Completion complete(
+            ChatIdentity who, String composite, String call, String rules, String user,
+            java.util.function.Consumer<GenerationEvent> events,
+            java.util.concurrent.atomic.AtomicInteger generation) {
+        try {return invokeJudge(who,composite,call,rules,user,events,generation);}
+        catch(RuntimeException failure) {throw new JudgeCallFailure(failure);}
+    }
+
+    private static final class JudgeCallFailure extends RuntimeException {
+        final RuntimeException failure;
+        JudgeCallFailure(RuntimeException failure) {super(failure);this.failure=failure;}
+    }
+
+    private Completion invokeJudge(
             ChatIdentity who,
             String composite,
             String call,

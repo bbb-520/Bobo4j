@@ -120,6 +120,7 @@ public class ExecutionController {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "暂时无法确认模型调用状态");
             }
 
+            if("ABANDONED".equals(state.get("status")))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"该调用已中断且账户占用已解除，请重新发送消息；旧调用不会重复派发");
             if (!Set.of(
                             "SUCCEEDED",
                             "RECEIVED",

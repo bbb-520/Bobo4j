@@ -319,6 +319,12 @@ public class InternalBillingController {
                 .then();
     }
 
+    @PostMapping("/groups/{id}/attempts/{role}/reject")
+    public Mono<GroupState> groupReject(@PathVariable String user,@PathVariable String id,@PathVariable String role,
+            @RequestHeader("X-Internal-Principal") String token,@RequestBody AttemptRejection body) {
+        return Mono.fromCallable(()->groups.reject(user,groupTenant(token,user,"POST /internal/billing/users/"+user+"/groups/"+id+"/attempts/"+role+"/reject"),id,role,body.generation(),body.evidence(),body.retainForFallback())).subscribeOn(Schedulers.boundedElastic());
+    }
+
     @PostMapping("/groups/{id}/attempts/{role}/skip")
     public Mono<Void> groupSkip(
             @PathVariable String user,

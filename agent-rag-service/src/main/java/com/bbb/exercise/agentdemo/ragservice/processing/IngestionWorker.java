@@ -93,7 +93,8 @@ public class IngestionWorker {
                                     state = "WAITING_FOR_RECONCILIATION";
                                     code = model.code();
 
-                                    if (model.code().equals("ADMISSION_TIMEOUT")) {
+                                    if(Set.of("PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_INTERRUPTED").contains(model.code()))state="FAILED";
+                                    if (model.code().equals("ADMISSION_TIMEOUT") || model.status()==429 || model.status()==402) {
                                         state = "WAITING_FOR_BUDGET";
                                     }
                                 }

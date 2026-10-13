@@ -47,6 +47,65 @@ public class ModelCallGroupService {
         this.agingSeconds = agingSeconds;
     }
 
+    @Value("${app.billing.recovery-stale-seconds:180}")
+    private int staleSeconds=180;
+
+    /** The execution limit is 90 seconds. A larger grace period protects receipt persistence. */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelayString="${app.billing.recovery-delay-ms:15000}",initialDelay=15000)
+    public void recoverStale() {
+        int age=Math.max(180,staleSeconds);
+        var rows=jdbc.queryForList("SELECT id,user_id,tenant_id FROM model_call_group WHERE status IN ('RESERVED','RUNNING','UNKNOWN','RECEIVED') AND updated_at<TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP) ORDER BY updated_at LIMIT 50",-age);
+        for(var row:rows) {
+            String id=(String)row.get("id"),user=(String)row.get("user_id"),tenant=(String)row.get("tenant_id");
+            try {
+                if("RECEIVED".equals(state(user,tenant,id).status())) {
+                    try { finish(user,tenant,id); continue; } catch(BillingException incomplete) { /* retain audit and release a stale owner below */ }
+                }
+                tx.executeWithoutResult(t->{
+                    var w=wallet(user);var g=group(user,tenant,id);
+                    if(jdbc.queryForObject("SELECT COUNT(*) FROM model_call_group WHERE id=? AND status IN ('RESERVED','RUNNING','UNKNOWN','RECEIVED') AND updated_at<TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP)",Integer.class,id,-age)!=1)return;
+                    long exposure=jdbc.queryForObject("SELECT COALESCE(SUM(reserved_cost_micros),0) FROM model_call_attempt WHERE group_id=? AND status IN ('DISPATCHED','UNKNOWN','RECEIVED')",Long.class,id);
+                    exposure=Math.max(exposure,num(g,"risk_micros"));
+                    lockBudget();
+                    jdbc.update("INSERT INTO model_call_recovery(group_id,generation,role,action,reason,estimated_exposure_micros) VALUES(?,?,'GROUP','ABANDONED','EXECUTION_DEADLINE_EXCEEDED',?)",id,num(g,"generation"),exposure);
+                    if(id.equals(w.get("active_usage_id")))jdbc.update("UPDATE billing_wallet SET reserved_micros=reserved_micros-?,active_usage_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND active_usage_id=?",num(g,"reserved_micros"),user,id);
+                    // This is a conservative platform budget allocation, never a measured user charge.
+                    jdbc.update("UPDATE model_fault_budget SET allocated_micros=allocated_micros-?,unresolved=unresolved-?,window_spent_micros=window_spent_micros+? WHERE id=1",num(g,"risk_micros"),num(g,"risk_attempts"),exposure);
+                    jdbc.update("UPDATE model_call_attempt SET cost_owner='PLATFORM',status=CASE WHEN status='RESERVED' THEN 'CANCELLED' ELSE status END WHERE group_id=? AND status IN ('RESERVED','DISPATCHED','UNKNOWN','RECEIVED')",id);
+                    jdbc.update("UPDATE model_call_group SET status='ABANDONED',reserved_micros=0,risk_micros=0,risk_attempts=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
+                });
+            } catch(RuntimeException error) {
+                org.slf4j.LoggerFactory.getLogger(ModelCallGroupService.class).warn("Model call recovery deferred for {}: {}",id,error.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /** Only authenticated internal transports can submit definite non-execution evidence. */
+    public GroupState reject(String user,String tenant,String id,String role,int generation,String evidence) {
+        return reject(user,tenant,id,role,generation,evidence,false);
+    }
+    public GroupState reject(String user,String tenant,String id,String role,int generation,String evidence,boolean retainForFallback) {
+        if(retainForFallback&&!"PRIMARY".equals(role))throw new BillingException(400,"只有主模型可以等待备用模型");
+        if(!Set.of("HTTP_400","HTTP_401","HTTP_403","HTTP_404","HTTP_405","HTTP_413","HTTP_422","HTTP_429","CONNECT_FAILED").contains(evidence==null?"":evidence))throw new BillingException(400,"供应商拒绝依据无效");
+        return tx.execute(t->{
+            var w=wallet(user);var g=group(user,tenant,id);requireGeneration(g,generation);var a=attemptRow(id,role);
+            if("REJECTED".equals(a.get("status")))return state(g);
+            if(!Set.of("DISPATCHED","UNKNOWN").contains(a.get("status"))||"ABANDONED".equals(g.get("status")))throw new BillingException(409,"调用状态已经变化");
+            jdbc.update("INSERT INTO model_call_recovery(group_id,generation,role,action,reason) VALUES(?,?,?,'REJECTED',?)",id,generation,role,evidence);
+            jdbc.update("UPDATE model_call_attempt SET status='REJECTED',input_tokens=0,output_tokens=0,cost_micros=0,updated_at=CURRENT_TIMESTAMP WHERE group_id=? AND role=?",id,role);
+            long pending=jdbc.queryForObject("SELECT COUNT(*) FROM model_call_attempt WHERE group_id=? AND status IN ('DISPATCHED','UNKNOWN','RECEIVED','SUCCEEDED')",Long.class,id);
+            if(pending==0 && retainForFallback) {
+                jdbc.update("UPDATE model_call_group SET status='RESERVED',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
+            } else if(pending==0) {
+                if(id.equals(w.get("active_usage_id")))jdbc.update("UPDATE billing_wallet SET reserved_micros=reserved_micros-?,active_usage_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND active_usage_id=?",num(g,"reserved_micros"),user,id);
+                lockBudget();
+                jdbc.update("UPDATE model_fault_budget SET allocated_micros=allocated_micros-?,unresolved=unresolved-? WHERE id=1",num(g,"risk_micros"),num(g,"risk_attempts"));
+                jdbc.update("UPDATE model_call_group SET status='FAILED_RESOLVED',reserved_micros=0,risk_micros=0,risk_attempts=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
+            } else if(g.get("receipt")==null)jdbc.update("UPDATE model_call_group SET status='UNKNOWN',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
+            return state(group(user,tenant,id));
+        });
+    }
+
     // 1. 调用组准入：用逻辑调用 ID 和参数哈希绑定一次可恢复的模型调用。
     public GroupState reserve(String user, String tenant, GroupReserve r) {
         if (r == null
@@ -264,7 +323,7 @@ public class ModelCallGroupService {
                     if ("FALLBACK".equals(r.role())) {
                         var p = attemptRow(id, "PRIMARY");
 
-                        if (!List.of("UNKNOWN", "SKIPPED").contains(p.get("status"))) {
+                        if (!List.of("UNKNOWN", "SKIPPED", "REJECTED").contains(p.get("status"))) {
                             throw new BillingException(409, "主调用未进入故障对账状态");
                         }
 
@@ -330,7 +389,8 @@ public class ModelCallGroupService {
                         throw new BillingException(402, "账户欠费，请充值");
                     }
 
-                    requireGeneration(group(user, tenant, id), generation);
+                    var dispatchGroup=group(user,tenant,id);requireGeneration(dispatchGroup,generation);
+                    if(!Set.of("RESERVED","RUNNING","UNKNOWN").contains(dispatchGroup.get("status")))throw new BillingException(409,"已结束调用不能派发");
 
                     if (jdbc.update(
                                     "UPDATE model_call_attempt SET status='DISPATCHED',updated_at=CURRENT_TIMESTAMP WHERE group_id=? AND role=? AND status='RESERVED'",
@@ -355,7 +415,9 @@ public class ModelCallGroupService {
         tx.executeWithoutResult(
                 s -> {
                     wallet(user);
-                    requireGeneration(group(user, tenant, id), generation);
+                    var current = group(user, tenant, id);
+                    requireGeneration(current, generation);
+                    if ("ABANDONED".equals(current.get("status"))) return;
                     int changed =
                             jdbc.update(
                                     "UPDATE model_call_attempt SET status='UNKNOWN',updated_at=CURRENT_TIMESTAMP WHERE group_id=? AND role=? AND status='DISPATCHED'",
@@ -427,7 +489,7 @@ public class ModelCallGroupService {
                     }
 
                     boolean late =
-                            "PRIMARY".equals(r.role()) && !attemptRows(id, "FALLBACK").isEmpty()
+                            "ABANDONED".equals(g.get("status")) || "PRIMARY".equals(r.role()) && !attemptRows(id, "FALLBACK").isEmpty()
                                     || g.get("receipt") != null;
 
                     jdbc.update(
@@ -460,6 +522,7 @@ public class ModelCallGroupService {
                     if ("SUCCEEDED".equals(g.get("status"))) {
                         return state(g);
                     }
+                    if("ABANDONED".equals(g.get("status")))throw new BillingException(409,"失联调用已结束，仅保存迟到用量证据");
 
                     if (g.get("receipt") == null) {
                         throw new BillingException(409, "模型结果未知，等待对账");
@@ -548,7 +611,7 @@ public class ModelCallGroupService {
 
                     requireGeneration(g, generation);
 
-                    if ("CANCELLED".equals(g.get("status"))) {
+                    if (Set.of("CANCELLED", "ABANDONED").contains(g.get("status"))) {
                         return;
                     }
 
@@ -562,6 +625,9 @@ public class ModelCallGroupService {
                         throw new BillingException(409, "已派发调用不能取消计费占用");
                     }
 
+                    lockBudget();
+                    jdbc.update("UPDATE model_fault_budget SET allocated_micros=allocated_micros-?,unresolved=unresolved-? WHERE id=1",num(g,"risk_micros"),num(g,"risk_attempts"));
+
                     if (id.equals(w.get("active_usage_id"))) {
                         jdbc.update(
                                 "UPDATE billing_wallet SET reserved_micros=reserved_micros-?,active_usage_id=NULL WHERE user_id=? AND active_usage_id=?",
@@ -571,7 +637,7 @@ public class ModelCallGroupService {
                     }
 
                     jdbc.update(
-                            "UPDATE model_call_group SET status='CANCELLED',reserved_micros=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            "UPDATE model_call_group SET status='CANCELLED',reserved_micros=0,risk_micros=0,risk_attempts=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                             id);
                     jdbc.update(
                             "UPDATE model_call_attempt SET status='CANCELLED' WHERE group_id=? AND status='RESERVED'",

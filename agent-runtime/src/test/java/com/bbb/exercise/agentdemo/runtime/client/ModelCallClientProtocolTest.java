@@ -80,6 +80,25 @@ class ModelCallClientProtocolTest {
         provider.stop(0);
     }
 
+    @Test void billingReceiptConnectionFailureMustNotBecomeAZeroUsageProviderRejection() {
+        billing=new FakeBilling(){@Override public Mono<Void> receipt(ChatIdentity i,String id,AttemptReceipt r){return Mono.error(new java.net.ConnectException("billing unavailable"));}};
+        client=new ModelCallClient(models,billing,WebClient.builder());
+        response="{\"results\":[{\"index\":0,\"relevance_score\":0.8}],\"usage\":{\"total_tokens\":5}}";
+        assertThatThrownBy(()->client.rerank(identity,"receipt-failed","q",List.of("a"))).isInstanceOf(ModelCallClient.ModelCallException.class);
+        assertThat(billing.rejected).isNull();assertThat(billing.unknown).isEqualTo("PRIMARY");
+    }
+
+    @Test void providerRejectionIsNotUnknownAndUnconfiguredModelsReleaseAdmission() {
+        response="{}";status=401;
+        assertThatThrownBy(()->client.embed(identity,"reject",List.of("a"),64)).isInstanceOf(ModelCallClient.ModelCallException.class);
+        assertThat(billing.unknown).isNull();
+        assertThat(billing.rejected).isEqualTo("PRIMARY");
+        models=new AuthModelClient(null){@Override public SelectedModel resolve(ChatIdentity i,ModelCapability c){return null;}};
+        client=new ModelCallClient(models,billing,WebClient.builder());
+        assertThatThrownBy(()->client.embed(identity,"config",List.of("a"),64)).isInstanceOf(ModelCallClient.ModelCallException.class);
+        assertThat(billing.cancelled).isTrue();
+    }
+
     @Test
     void completedReceiptReplaysWithoutProviderDispatch() {
         billing.state =
@@ -863,7 +882,7 @@ class ModelCallClientProtocolTest {
         GroupState state = new GroupState("call", "RESERVED", null, null);
         GroupReserve lastGroup;
         Map<String, String> groupHashes = new HashMap<>();
-        String unknown;
+        String unknown, rejected;
         AttemptReceipt saved;
         boolean finished, cancelled;
         AttemptReserve lastAttempt;
@@ -926,6 +945,10 @@ class ModelCallClientProtocolTest {
             unknownSignal.countDown();
 
             return Mono.empty();
+        }
+
+        @Override public Mono<GroupState> rejectAttempt(ChatIdentity i,String id,String role,int generation,String evidence,boolean retain) {
+            rejected=role;return Mono.just(new GroupState(id,"FAILED_RESOLVED",null,null,generation));
         }
 
         @Override

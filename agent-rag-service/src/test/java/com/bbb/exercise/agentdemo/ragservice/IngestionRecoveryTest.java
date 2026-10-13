@@ -21,6 +21,23 @@ class IngestionRecoveryTest {
     @TempDir Path dir;
 
     @Test
+    void explicitNonExecutionFailuresEndIngestionWhileUnknownOutcomesRemainAuditable() {
+        for(String code:List.of("PROVIDER_REJECTED","PROVIDER_CONNECT_FAILED","MODEL_NOT_CONFIGURED","MODEL_CALL_INTERRUPTED","PROVIDER_TIMEOUT_OR_CONNECTION")) {
+            var repository=org.mockito.Mockito.mock(RagRepository.class);
+            var job=org.mockito.Mockito.mock(Job.class);
+            org.mockito.Mockito.when(repository.claim()).thenReturn(Optional.of(job));
+            org.mockito.Mockito.when(job.stage()).thenReturn("CHUNKING");
+            var worker=new IngestionWorker(repository,null,null,null,2,200000,new SimpleMeterRegistry()) {
+                @Override public void process(Job current) {
+                    throw new com.bbb.exercise.agentdemo.runtime.client.ModelCallClient.ModelCallException(code,false,503);
+                }
+            };
+            worker.poll();
+            org.mockito.Mockito.verify(repository).park(job,code.equals("PROVIDER_TIMEOUT_OR_CONNECTION")?"WAITING_FOR_RECONCILIATION":"FAILED",code);
+        }
+    }
+
+    @Test
     void wholeDocumentSummaryCoversTailAndResumesSavedNodesWithoutExtraPaidCalls()
             throws Exception {
         var source =

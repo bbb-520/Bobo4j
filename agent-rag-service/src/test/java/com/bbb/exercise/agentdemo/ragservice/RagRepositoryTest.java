@@ -136,6 +136,23 @@ class RagRepositoryTest {
     }
 
     @Test
+    void oneRetryAfterAmbiguousSummaryFailureCreatesFreshVersionAndWaitsForItsIndex() {
+        String id=document();Job old=repository.claim().orElseThrow();repository.indexReady(old);
+        String existing=repository.createConversation(owner,List.of(id)).conversationId();
+        repository.park(old,"WAITING_FOR_RECONCILIATION","PROVIDER_TIMEOUT_OR_CONNECTION");
+        var retried=repository.retry(owner,id);
+        assertThat(retried.indexStatus()).isEqualTo("REBUILDING");
+        assertThat(db.queryForObject("SELECT processing_version FROM rag_document WHERE document_id=?",Integer.class,id)).isEqualTo(2);
+        assertThatThrownBy(()->repository.createConversation(owner,List.of(id))).isInstanceOf(RuntimeException.class);
+        var answerRequest=new AnswerRequest("while-rebuilding",existing,"question");
+        var answerLease=repository.begin(owner,answerRequest);repository.renewAnswer(owner,answerRequest,answerLease.fence());
+        repository.commit(owner,answerRequest,answerLease.fence(),new Answer("old published evidence",List.of(),"NO_EVIDENCE",false,5,1));
+        Job current=repository.claim().orElseThrow();assertThat(current.version()).isEqualTo(2);
+        repository.indexReady(current);
+        assertThat(repository.createConversation(owner,List.of(id)).indexVersions()).containsEntry(id,2);
+    }
+
+    @Test
     void answerLeaseRenewsOnlyForLiveOwnerAndPinnedDocument() {
         String id = document();
 
