@@ -28,6 +28,14 @@ server:
   port: ${SERVER_PORT:18000}
   shutdown: graceful
 app:
+  traffic:
+    enabled: ${GATEWAY_TRAFFIC_ENABLED:true}
+    route-qps: ${GATEWAY_ROUTE_QPS:50}
+    interval-seconds: ${GATEWAY_RATE_INTERVAL_SECONDS:1}
+    routes:
+      images: ${GATEWAY_IMAGE_QPS:20}
+      documents: ${GATEWAY_DOCUMENT_QPS:20}
+      orchestrator: ${GATEWAY_EXECUTION_QPS:30}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:https://www.boboo.xin,https://boboo.xin,http://localhost:*,http://127.0.0.1:*}
   auth:
