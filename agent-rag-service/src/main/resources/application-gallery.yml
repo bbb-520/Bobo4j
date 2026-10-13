@@ -1,0 +1,19 @@
+# Explicitly activate the gallery profile, then set PROMPT_GALLERY_ENABLED=true.
+# No startup runner imports prompts or calls an embedding/chat API.
+app:
+  prompt-gallery:
+    enabled: ${PROMPT_GALLERY_ENABLED:false}
+    chat-enabled: ${PROMPT_GALLERY_CHAT_ENABLED:false}
+    source-root: ${PROMPT_GALLERY_SOURCE_ROOT:}
+    source-commit: ${PROMPT_GALLERY_SOURCE_COMMIT:9f8aa1a44a4a5c0f5a5d6e45eed564b3e2d5b87f}
+    collection: ${PROMPT_GALLERY_COLLECTION:agent_prompt_gallery_openai_small_1536_v1}
+    embedding-space: ${PROMPT_GALLERY_EMBEDDING_SPACE:openai/text-embedding-3-small/v1}
+    dimensions: ${PROMPT_GALLERY_DIMENSIONS:1536}
+    embedding-model: ${PROMPT_GALLERY_EMBEDDING_MODEL:text-embedding-3-small}
+    chat-model: ${PROMPT_GALLERY_CHAT_MODEL:gpt-4.1-mini}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    api-key: ${OPENAI_API_KEY:}
+    milvus-uri: ${MILVUS_URI:http://localhost:19530}
+    milvus-token: ${MILVUS_TOKEN:}
+    max-concurrent: ${PROMPT_GALLERY_MAX_CONCURRENT:2}
+    max-requests-per-minute: ${PROMPT_GALLERY_MAX_REQUESTS_PER_MINUTE:10}
