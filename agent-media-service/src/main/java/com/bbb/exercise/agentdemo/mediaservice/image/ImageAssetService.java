@@ -118,6 +118,16 @@ public class ImageAssetService {
         return asset;
     }
 
+    /** The upload grant expires; an already verified owner's image remains viewable. */
+    public PreviewView preview(ChatIdentity identity, String assetId) {
+        AssetRecord asset = requireOwned(identity, assetId);
+        if (!"READY".equals(asset.status())) {
+            throw new IllegalArgumentException("图片尚未上传完成");
+        }
+        return new PreviewView(asset.id(), storage.signedGetUrl(asset.objectKey()),
+                java.time.Instant.now().plus(ossProperties.getSignedUrlTtl()));
+    }
+
     // 3.1. 所有权查询：资产 ID 不能替代当前用户和租户的归属校验。
     public AssetRecord requireOwned(ChatIdentity identity, String assetId) {
         if (assetId == null || assetId.isBlank()) {
@@ -192,6 +202,8 @@ public class ImageAssetService {
 
     /** 已就绪图片资产的公开视图，提供对象定位和文件属性。 */
     public record AssetView(String assetId, String objectKey, String mimeType, long fileSize) {}
+
+    public record PreviewView(String assetId, String previewUrl, java.time.Instant expiresAt) {}
 
     /** 图片资产内部记录，保存上传状态、文件属性和授权到期时间。 */
     public record AssetRecord(

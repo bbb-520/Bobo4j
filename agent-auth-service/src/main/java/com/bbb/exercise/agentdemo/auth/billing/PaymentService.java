@@ -239,7 +239,7 @@ public class PaymentService {
 
     static void ledger(JdbcTemplate db,String order,String refund,String type,long delta,String actor) {
         db.update("INSERT INTO payment_ledger(event_key,order_id,refund_id,event_type,delta_micros,actor) VALUES(?,?,?,?,?,?)",
-                order+":"+type,order,refund,type,delta,actor);
+                (refund==null?order:refund)+":"+type,order,refund,type,delta,actor);
     }
 
     private static Order map(java.sql.ResultSet rs) throws java.sql.SQLException {

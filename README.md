@@ -18,7 +18,7 @@ BOBO4J 把模型调用、知识检索、工具执行和消费结算拆分为边�
 | 免费额度与资金如何结算 | [计费与数据一致性](#计费与数据一致性) |
 | 历史修改、发布范围与验收结果 | [更新记录](#更新记录) |
 
-本文正文以 GitHub `main` 已合入的功能为基线；本地尚未合入的可靠性与提示词画廊改造在文末单独说明。是否已在生产启用、是否通过真实供应商验收，以各次发布记录为准。源码默认值也不代表生产环境实际配置。
+本文正文描述本次完整同步的源码，包括可靠性与提示词画廊改造。源码提交不等于生产部署；是否已在生产启用、是否通过真实供应商验收，以文末各次发布记录为准。源码默认值也不代表生产环境实际配置。
 
 ## 核心能力
 
@@ -34,6 +34,7 @@ BOBO4J 把模型调用、知识检索、工具执行和消费结算拆分为边�
 | 图片与内容 | OSS 直传策略、图片生成任务、Zine 创作与 Bobo World 作品发布 |
 | 账户与支付 | QQ 邮箱验证码、Cookie 登录、注册赠送免费 Token、钱包与消费记录、支付宝扫码充值 |
 | 账户治理 | RBAC 角色与权限、操作审计、用户禁用、模型调用组对账 |
+| 提示词画廊 | 可选的管理员提示词解析、Milvus 语义检索与改写示例；默认关闭，尚未接入聊天 UI |
 | 可观测性 | Actuator、Micrometer、Prometheus 指标与告警、Zipkin 调用链 |
 
 ## 聊天模式与附件
@@ -146,10 +147,11 @@ docker compose --env-file .env -f compose.server.local.yml ps
 | Token 与价格 | `BILLING_TOKEN_PRICE_PER_1K_MICROS`、`BILLING_IMAGE_PRICE_MICROS` | Token 单价与无 Token 回执图片的价格折算 |
 | 占用恢复 | `BILLING_RECOVERY_STALE_SECONDS`、`BILLING_RECOVERY_DELAY_MS`、`BILLING_IMAGE_RECOVERY_STALE_SECONDS` | 调用组失联检查与独立图片任务恢复窗口 |
 | 支付宝 | `ALIPAY_ENABLED`、`ALIPAY_APP_ID`、`ALIPAY_SELLER_ID`、`ALIPAY_GATEWAY`、`ALIPAY_PRIVATE_KEY_PATH`、`ALIPAY_PUBLIC_KEY_PATH`、`PAYMENT_NOTIFY_BASE_URL` | 商户、密钥挂载、正式 / 沙箱环境与公网 HTTPS 通知地址 |
+| 限流与熔断 | `GATEWAY_*_QPS`、`MODEL_CIRCUIT_*` | 路由流量限制与模型调用保护，详细字段见可靠性文档 |
 
 支付宝当前使用 `alipay.trade.precreate` 扫码预创建。应用上线、对应支付产品及接口权限、商户签约均需核对；配置预检或本地测试通过不能证明生产支付到账。预检脚本说明见 [scripts/README.md](scripts/README.md)。
 
-服务器沿用实际部署的 Compose 入口，检查端口与卷挂载后再修改配置。当前 GitHub `main` 已删除 `docs` 目录，原中间件、可靠性与提示词画廊专项说明不随本次提交恢复；仓库内可用入口见 [基础设施](infra/README.md) 和 [辅助脚本](scripts/README.md)。
+服务器沿用实际部署的 Compose 入口，检查端口与卷挂载后再修改配置。服务器访问与中间件操作见 [中间件运维说明](docs/middleware-operations.md)，恢复阈值、退款核对、限流和模型熔断见 [可靠性改造说明](docs/reliability-upgrade.md)。
 
 ## 架构总览
 
@@ -263,7 +265,7 @@ BoboWorld4J/
 - **外循环**（持久、数据库驱动、可跨重启）：`ExecutionWorker` 通过定时轮询领取任务租约（含租约续期），先对账未完成的付费步骤，再逐轮推进；使用虚拟线程与有界并发执行。
 - **内循环**（单次租约内的决策-工具循环）：模型只输出结构化 JSON 决策，服务端校验参数后派发白名单工具，直到任务完成或进入等待。
 
-**工具白名单**：当前 `main` 由服务端限制可调用的工具，模型不能自行扩展权限；本地注册表改造尚未合入。内置工具包括：
+**工具注册**：服务端通过 `ExecutionToolRegistry` 注册受控的 Spring AI `ToolCallback`，模型只能选择注册表公布的工具，不能自行扩展权限。内置工具包括：
 
 ```text
 rag.search, rag.answer, rag.read_sections, visual_memory.search, media.create
@@ -278,7 +280,7 @@ rag.search, rag.answer, rag.read_sections, visual_memory.search, media.create
 ### 多模态与视觉记忆
 
 - **图片理解**：`agent-chat-service` 通过模型客户端的 `VISION` 模式携带图片理解问题。旧 `/api/chat` 入口单次最多 1 张图片；持久聊天入口最多 3 张，见前述聊天模式与附件限制。
-- **视觉记忆**：`agent-chat-service` 在 MySQL `vision_memory` 表中保存场景摘要（主体、配色、构图、情绪、用户指令）。当前 `main` 使用词法检索与时间衰减打分，通过 `/api/settings/visual-memory/context` 提供上下文；本地 Embedding 语义检索改造尚未合入。
+- **视觉记忆**：`agent-chat-service` 在 MySQL `vision_memory` 表中保存场景摘要与真实 Embedding 向量，按账户、模型空间与维度过滤后进行余弦相似度检索，最多扫描 1,000 条候选。`/api/settings/visual-memory/context` 提供上下文，显式 `/api/settings/visual-memory/reindex` 建立或更新索引，相关模型调用纳入计费。
 - **图片生成**：`agent-media-service` 管理上传资产与生成任务，任务异步执行并保存供应商回执；`agent-content-service` 基于可信的图片任务生成 Zine，并发布为 Bobo World 作品。
 
 ### 模型路由与兜底
@@ -314,6 +316,7 @@ API 基址为网关的 `/api`。普通接口返回 JSON，对话与执行事件�
 | GET | `/api/admin/users`、`/roles`、`/permissions`、`/audits` | RBAC 用户、角色、权限与审计 |
 | PUT | `/api/admin/users/{user}/status`、`/users/{user}/roles`、`/roles/{code}` | 用户禁用、角色授予、角色维护 |
 | POST | `/api/chat`（别名 `/api/chat/completions`） | 对话 SSE，字段为 `question`、`sessionId`、`attachments` |
+| GET / PUT | `/api/conversations`、`/api/conversations/{id}` | 会话目录与快照恢复；写入使用 `expectedRevision`，删除使用墓碑 |
 | GET | `/api/settings/visual-memory/context` | 视觉记忆召回上下文 |
 | POST / GET | `/api/documents` | 上传文档 / 文档列表 |
 | GET | `/api/documents/{id}`、`/documents/{id}/summary`、`/documents/{id}/sources/{chunkId}` | 入库状态 / 摘要 / 原文引用切片 |
@@ -329,6 +332,7 @@ API 基址为网关的 `/api`。普通接口返回 JSON，对话与执行事件�
 | POST | `/api/image-assets/upload-policy`、`/api/image-assets/{assetId}/complete` | 获取受限的 OSS 直传策略 / 完成校验 |
 | POST / GET | `/api/image-jobs`、`/api/image-jobs/{jobId}` | 创建图片生成任务 / 查询与下载 |
 | GET | `/api/image-jobs/by-request/{requestId}`、`/api/image-jobs?conversationId=...` | 按请求或会话恢复当前用户的图片任务 |
+| GET | `/api/image-assets/{assetId}/preview` | 为自己已验证的 READY 资产获取短期预览地址 |
 | POST | `/api/zine/generate` | Zine 创作生成 |
 | POST / GET / PATCH / DELETE | `/api/bobo/items`、`/api/bobo/items/mine`、`/api/bobo/items/{itemId}` | 作品发布 / 我的 / 详情、可见性修改、删除 |
 | GET | `/api/bobo/world` | 公开作品浏览（游标分页） |
@@ -367,7 +371,7 @@ MySQL 各服务使用独立 Flyway history（`flyway_schema_history_<service>`�
 - 默认部署是单机多容器方案，不能据此声称已具备高可用、集群灾备或无限任务执行能力。
 - 模型、OSS、邮箱与支付需要各自凭据，服务启动就绪不等于外部能力已验证。
 - 文档证据检查与模型兜底可减少失败与不忠实回答，但无法保证每次生成绝对正确。
-- 本 README 正文描述当前 `main` 的功能基线；本地未合入代码不能视为仓库已发布功能。生产环境应使用一致版本的前后端，并在改动后重新打包与构建镜像。
+- 本 README 正文描述本次同步的源码实现。生产环境应使用一致版本的前后端，并在改动后重新打包与构建镜像。
 
 ## 更多文档
 
@@ -375,6 +379,9 @@ MySQL 各服务使用独立 Flyway history（`flyway_schema_history_<service>`�
 | --- | --- |
 | [基础设施](infra/README.md) | Compose 组合、数据卷、服务发现与启动排错 |
 | [辅助脚本](scripts/README.md) | 构建、配置发布、健康检查及支付预检的实际范围 |
+| [中间件运维](docs/middleware-operations.md) | 服务器访问、端口与中间件操作 |
+| [可靠性改造](docs/reliability-upgrade.md) | 会话同步、退款重试、工具扩展、视觉向量检索、限流与熔断 |
+| [提示词画廊](docs/prompt-gallery.md) | 管理员示例、来源许可、配置、导入与搜索 |
 | [RAG 模块](agent-rag-service/README.md) | 文档与检索实现，离线评测位于 `agent-rag-service/evaluation` |
 
 其他模块的局部配置与接口细节见对应目录 README。
@@ -538,3 +545,10 @@ Qwen 文生图请求只包含 text，图生图增加 image；格式以[阿里云
 - 按 `bbb-520/Bobo4j` 的最新 `main` 核对 README，只提交该文件；保留远程已删除的 `docs` 目录状态。
 - 移除指向远程缺失文档的链接，将未合入的可靠性与提示词画廊改造明确标为本地开发记录；正文的工具白名单与视觉记忆说明以已合入代码为准。
 - 验证文档结构、导航、目标提交中的文件链接及服务端口一致性；本次没有执行应用发布或真实模型、支付验收。
+
+### 2026-10-13 前后端完整源码同步
+
+- 同步本地完整后端实现、测试、公开配置模板和配套前端，分别提交到 `Bobo4j` 与 `Bobo_web`；包含可靠性、会话与附件恢复、视觉语义检索、受控工具注册及默认关闭的管理员提示词画廊。
+- 随源码提供中间件、可靠性与画廊公共文档；开发计划、发布临时副本、真实环境变量、私钥、日志与构建产物保留在本地。正文已按本次同步的源码更新。
+- 后端完整 Maven Reactor 验证共 557 项，550 项通过、7 项按环境条件跳过，0 失败 / 错误；前端全部 16 组测试、TypeScript 检查及 Vite 生产构建通过。
+- 本次仅同步 GitHub 源码，没有部署服务器，也未执行真实模型调用或资金操作。

@@ -45,5 +45,8 @@ HELP.md
 data/
 compose.server.local.yml
 
-# Local deployment work and credentials
+# 本地发布工作区与临时输出
 .migration/
+/output/
+/tmp/
+/docs/superpowers/

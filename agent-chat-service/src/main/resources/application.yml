@@ -59,6 +59,9 @@ management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true
 app:
+  vision-memory:
+    dimensions: ${VISION_MEMORY_DIMENSIONS:1024}
+    similarity-threshold: ${VISION_MEMORY_SIMILARITY_THRESHOLD:0.55}
   security:
     api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:}
     internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}

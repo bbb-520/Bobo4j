@@ -35,7 +35,7 @@ public class PaymentAdminController {
     @PostMapping
     public Mono<PaymentRefundService.Refund> refund(@PathVariable String id, @RequestBody Reason body,
                                                    ServerWebExchange exchange) {
-        return operator(exchange).flatMap(actor -> Mono.fromCallable(() -> recovery.refund(id,actor,body.reason()))
+        return operator(exchange).flatMap(actor -> Mono.fromCallable(() -> recovery.refund(id,actor,body.reason(),body.requestId()))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
     @GetMapping
@@ -43,7 +43,11 @@ public class PaymentAdminController {
         return operator(exchange).flatMap(actor -> Mono.fromCallable(() -> refunds.forOrder(id))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
-    public record Reason(String reason) {}
+    public record Reason(String reason,String requestId) {public Reason(String reason){this(reason,null);}}
+    @GetMapping("/history")
+    public Mono<java.util.List<PaymentRefundService.Refund>> history(@PathVariable String id,ServerWebExchange exchange) {
+        return operator(exchange).flatMap(actor->Mono.fromCallable(()->refunds.history(id)).subscribeOn(Schedulers.boundedElastic()));
+    }
 
     @PostMapping("/resolve")
     public Mono<PaymentRefundService.Refund> resolve(@PathVariable String id,@RequestBody Resolution body,ServerWebExchange exchange) {

@@ -4,6 +4,7 @@ import com.bbb.exercise.agentdemo.runtime.identity.ChatIdentityResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,6 +20,16 @@ import reactor.core.scheduler.Schedulers;
 public class ImageAssetController {
     private final ChatIdentityResolver identityResolver;
     private final ImageAssetService assets;
+
+    @GetMapping("/{assetId}/preview")
+    public Mono<ResponseEntity<ImageAssetService.PreviewView>> preview(
+            @PathVariable String assetId, ServerWebExchange exchange) {
+        return identityResolver.resolveRequired(exchange)
+                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok()
+                        .cacheControl(org.springframework.http.CacheControl.noStore())
+                        .body(assets.preview(identity, assetId)))
+                        .subscribeOn(Schedulers.boundedElastic()));
+    }
 
     // 1. 浏览器直传：从当前认证身份申请限时上传策略。
     @PostMapping("/upload-policy")

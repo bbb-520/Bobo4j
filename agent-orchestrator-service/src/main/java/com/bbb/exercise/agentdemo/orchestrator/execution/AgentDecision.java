@@ -16,6 +16,9 @@ public record AgentDecision(
 
     // 1. 决策协议：严格校验 JSON 字段、决策类型和工具参数，拒绝越权身份字段。
     public static AgentDecision parse(ObjectMapper mapper, String text) {
+        return parse(mapper,text,TOOLS);
+    }
+    public static AgentDecision parse(ObjectMapper mapper,String text,Set<String> allowedTools) {
         try {
             var node = mapper.readTree(text);
 
@@ -36,7 +39,7 @@ public record AgentDecision(
 
                 String tool = node.path("tool").asText();
 
-                if (!TOOLS.contains(tool)) {
+                if (!allowedTools.contains(tool)) {
                     throw new IllegalArgumentException("不允许的工具");
                 }
 

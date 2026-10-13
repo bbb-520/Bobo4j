@@ -27,7 +27,7 @@ public class GatewayRoutes {
         "/api/billing/**",
         "/api/payments/**"
     };
-    public static final String[] CHAT_PATHS = {"/api/chat/**", "/api/settings/visual-memory/**"};
+    public static final String[] CHAT_PATHS = {"/api/chat/**", "/api/settings/visual-memory/**", "/api/conversations/**"};
     public static final String[] MEDIA_PATHS = {"/api/image-assets/**", "/api/image-jobs/**"};
     public static final String[] CONTENT_PATHS = {"/api/bobo/**", "/api/zine/**", "/api/photo-archive/**"};
     public static final String[] RAG_PATHS = {
