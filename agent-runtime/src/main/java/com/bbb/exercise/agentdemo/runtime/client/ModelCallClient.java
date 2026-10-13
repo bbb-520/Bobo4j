@@ -565,7 +565,7 @@ public class ModelCallClient {
 
             return batch;
         } catch (Exception error) {
-            if(dispatched&&!providerSucceeded&&circuit!=null)circuit.failure(model);
+            if(dispatched&&!providerSucceeded&&circuit!=null&&circuitFailure(error))circuit.failure(model);
             throw unknown(identity, callId, "PRIMARY", error, g.generation(), dispatched);
         } finally {
             recordDuration(ModelCapability.EMBEDDING, "PRIMARY", succeeded, started);
@@ -669,7 +669,7 @@ public class ModelCallClient {
 
             return ranking;
         } catch (Exception error) {
-            if(dispatched&&!providerSucceeded&&circuit!=null)circuit.failure(model);
+            if(dispatched&&!providerSucceeded&&circuit!=null&&circuitFailure(error))circuit.failure(model);
             throw unknown(identity, callId, "PRIMARY", error, g.generation(), dispatched);
         } finally {
             recordDuration(ModelCapability.RERANK, "PRIMARY", succeeded, started);
@@ -1141,6 +1141,12 @@ public class ModelCallClient {
             if(cause instanceof ProviderConnectFailure)return "CONNECT_FAILED";
         }
         return null;
+    }
+    private static boolean circuitFailure(Throwable error) {
+        for(Throwable cause=error;cause!=null;cause=cause.getCause()) {
+            if(cause instanceof DefiniteProviderFailure rejected)return rejected.status()==429||rejected.status()>=500;
+        }
+        return true;
     }
 
     private static Throwable providerTransportFailure(Throwable error) {

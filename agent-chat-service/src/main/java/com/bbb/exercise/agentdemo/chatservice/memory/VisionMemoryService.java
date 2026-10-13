@@ -45,7 +45,7 @@ public class VisionMemoryService {
     public int reindex(ChatIdentity identity,int limit) {
         requireUser(identity);if(limit<1||limit>8)throw new IllegalArgumentException("每次最多重建 8 条视觉记忆");
         var current=embeddings.open(identity,stable("space","inspect"),0L);
-        var rows=jdbc.queryForList("SELECT id,content,embedding_json,embedding_fingerprint,embedding_dimensions FROM vision_memory WHERE user_id=? AND tenant_id=? AND active=1 ORDER BY id LIMIT 1000",identity.userId(),identity.tenantId());
+        var rows=jdbc.queryForList("SELECT id,content,embedding_json,embedding_fingerprint,embedding_dimensions FROM vision_memory WHERE user_id=? AND tenant_id=? AND active=1 ORDER BY CASE WHEN embedding_json IS NOT NULL AND embedding_fingerprint=? AND embedding_dimensions=? THEN 1 ELSE 0 END,id LIMIT 1000",identity.userId(),identity.tenantId(),current.fingerprint(),current.dimensions());
         int count=0;
         for(var row:rows) {
             boolean valid=false;

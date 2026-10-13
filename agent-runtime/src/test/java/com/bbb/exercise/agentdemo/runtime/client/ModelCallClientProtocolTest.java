@@ -92,6 +92,16 @@ class ModelCallClientProtocolTest {
         assertThatThrownBy(()->client.embed(identity,"embedding-circuit",List.of("text"),64)).isInstanceOf(ModelCallClient.ModelCallException.class);
         assertThat(calls.get()).isZero();assertThat(billing.cancelled).isTrue();assertThat(billing.unknown).isNull();
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"EMBEDDING","RERANK"})
+    void invalidClientCredentialsDoNotOpenTheSharedProviderCircuit(String capability) {
+        status=401;response="{}";var circuit=new ModelCircuit();
+        client=new ModelCallClient(models,billing,WebClient.builder(),circuit,15,20,60,30);
+        for(int n=0;n<5;n++){String call="bad-key-"+n;
+            assertThatThrownBy(()->{if(capability.equals("EMBEDDING"))client.embed(identity,call,List.of("text"),64);else client.rerank(identity,call,"question",List.of("text"));}).isInstanceOf(ModelCallClient.ModelCallException.class);
+        }
+        assertThat(circuit.acquire(models.resolve(identity,ModelCapability.valueOf(capability)))).isTrue();
+    }
 
     @Test void billingReceiptConnectionFailureMustNotBecomeAZeroUsageProviderRejection() {
         billing=new FakeBilling(){@Override public Mono<Void> receipt(ChatIdentity i,String id,AttemptReceipt r){return Mono.error(new java.net.ConnectException("billing unavailable"));}};

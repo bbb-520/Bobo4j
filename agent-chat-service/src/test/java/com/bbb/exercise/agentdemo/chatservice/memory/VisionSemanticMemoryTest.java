@@ -9,6 +9,16 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class VisionSemanticMemoryTest {
+    @Test void indexedOlderRowsDoNotStarveReindexingOfNewLegacyMemories() {
+        var db=new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1","sa",""));
+        db.execute("CREATE TABLE vision_memory(id BIGINT PRIMARY KEY,tenant_id VARCHAR,user_id VARCHAR,kind VARCHAR,content VARCHAR,active INT,updated_at TIMESTAMP,embedding_json VARCHAR,embedding_fingerprint VARCHAR,embedding_dimensions INT)");
+        var rows=new ArrayList<Object[]>();for(int i=1;i<=1000;i++)rows.add(new Object[]{i});
+        db.batchUpdate("INSERT INTO vision_memory VALUES(?,'tenant','owner','SCENE','indexed',1,CURRENT_TIMESTAMP,'[1,0]','v1',2)",rows);
+        insert(db,1001,"tenant","owner","new legacy",null,null);
+        var model=mock(EmbeddingModel.class);when(model.embed("new legacy")).thenReturn(new float[]{1,0});
+        var service=new VisionMemoryService(db,(who,call,budget)->new VisionEmbeddings.Space(model,"v1",2,()->0L),.5);
+        assertThat(service.reindex(new ChatIdentity("tenant","owner",true),1)).isEqualTo(1);
+    }
     @Test void explicitReindexRebuildsOnlyOwnedLegacyRowsAndIsIdempotent() {
         var db=new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1","sa",""));
         db.execute("CREATE TABLE vision_memory(id BIGINT PRIMARY KEY,tenant_id VARCHAR,user_id VARCHAR,kind VARCHAR,content VARCHAR,active INT,updated_at TIMESTAMP,embedding_json VARCHAR,embedding_fingerprint VARCHAR,embedding_dimensions INT)");
