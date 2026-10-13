@@ -53,6 +53,19 @@ java -jar agent-rag-service/target/agent-rag-service-0.0.1-SNAPSHOT.jar
 
 现有唯一 `EmbeddingModel` 和 `ChatModel` bean 优先使用；画廊从 `ChatModel` 创建隔离的 `ChatClient`，避免继承已有业务 ChatClient 的工具、会话 memory 和执行 advisor。无平台模型 bean 时懒创建 `OpenAiEmbeddingModel`/`OpenAiChatModel`，embedding 显式 `MetadataMode.NONE`。不依赖自动配置 starter，不影响现有 RAG 启动。绑定到多个模型 bean 时返回明确错误；请给画廊提供唯一模型，避免误选。本实现不注册工具。Spring AI 2.0.1 的 `ToolCallingChatOptions` 已没有旧版 `internalToolExecutionEnabled`/`toolNames` 接口；隔离 Client 的测试证明不会继承带 default tools/advisors 的业务 Client。
 
+## 可选容器配置
+
+项目附带 `docker-compose.gallery.yml`，只在显式加入该文件时启用画廊profile，并将宿主机固定版本仓库以只读方式挂入RAG容器。它不会启动自动导入。先配置 `PROMPT_GALLERY_SOURCE_DIR` 为克隆目录，`OPENAI_API_KEY` 由部署环境注入；已有其他profile时把 `RAG_ACTIVE_PROFILES` 设为包含 `gallery` 的逗号列表。
+
+```powershell
+$env:PROMPT_GALLERY_SOURCE_DIR='D:/data/GPT-Image2-Skill'
+docker compose -f infra/docker-compose.yml -f docker-compose.app.yml -f docker-compose.gallery.yml config --quiet
+# 仅在准备发布时执行；本次开发没有运行此up命令。
+docker compose -f infra/docker-compose.yml -f docker-compose.app.yml -f docker-compose.gallery.yml up -d --build agent-rag-service
+```
+
+Compose保留原RAG数据卷与内部Milvus地址；所有模型、collection、维度、管理端频率参数均可从宿主环境透传。先执行下方dry-run，再决定是否显式进行收费导入。
+
 ## HTTP 使用例
 
 通过现有 gateway 或服务地址调用 `/api/documents/prompt-gallery/**`。复用现有 Cookie 登录/会话、角色授权和 CSRF；`X-User-ID`/`X-Roles` 等自报请求头不能授予权限。管理员需同时拥有 `rag:document:manage`、`model:manage`；角色默认没有这些权限时，通过现有角色管理为管理员配置，不能临时关闭鉴权。
@@ -86,6 +99,29 @@ import 返回 `dryRun/categories/entries/parsedPrompts/upserted/duplicates/sourc
 search 使用 POST JSON 并校验 CSRF，避免预加载 GET 触发模型费用，返回 `id/prompt/metadata/score`。分类通过 `Filter.Expression` 构造，并由 adapter 使用 Milvus `filterTemplateValues` 参数绑定；类别文本不能注入过滤表达式。adapt 仅将有界参考正文放在 JSON user message 中，固定 system prompt 标明引用数据不可信，使用 `NoOpTemplateRenderer` 防止花括号被模板解释；最多12,000参考字符，每条最多4,000。它输出新提示词文本，不会生成图片，也不会调用图片链接。
 
 所有付费 REST 操作使用进程级保护：默认并发2、每分钟最多10次，分别由 `PROMPT_GALLERY_MAX_CONCURRENT`（1..8）、`PROMPT_GALLERY_MAX_REQUESTS_PER_MINUTE`（1..60）配置。超限返回429。一次 import 可能包含多个模型批次，因此次数限制不等同 token/金额预算；该示例仅允许管理员承担平台成本。多实例部署会各自计数，接入普通用户前需复用正式计费执行上下文并增加分布式额度限制。
+
+## 模糊需求与返回字段示例
+
+用户输入“下雨天的植物玻璃房，颜色淡淡的，像纸上画的”，可使用上面的search接口，category设为 `watercolor`。源目录中实际存在匹配的No.49条目。以下是根据原文展示的返回字段摘录，省略运行时id/score、截短正文；它是人工对照示例，不能当作已经验证的真实embedding检索排名。
+
+```json
+[
+  {
+    "prompt": "Create a delicate watercolor illustration of a rainy botanical greenhouse in early morning. ...",
+    "metadata": {
+      "title": "No. 49 · Rainy botanical greenhouse watercolor",
+      "category": "watercolor",
+      "source_file": "skills/gpt-image/references/gallery-watercolor.md",
+      "size": "1536x1024",
+      "quality": "",
+      "tags": [],
+      "curated": true
+    }
+  }
+]
+```
+
+实际返回的prompt为完整可复制正文；按score排序的前topK项由配置的embedding模型与Milvus计算。可继续调用adapt把检索出的构图、材质和风格合并成符合用户需求的新提示词。
 
 ## 验证与实际执行边界
 

@@ -20,6 +20,8 @@ auth 服务的 Flyway V11 保留原退款记录，增加 `attempt_no` 和 `reque
 
 该接口仍只处理已到账支付宝订单的全额原路退款，不能退款已消费或预留资金。真实渠道资金、商户权限和退款闭环需独立验收，单元测试不能证明渠道实际到账。
 
+管理员可查询 `GET /api/payments/admin/orders/{id}/refund/history`。调用 `POST /api/payments/admin/orders/{id}/refund` 时请求体例如 `{"reason":"商户问题解决后再次退款","requestId":"一次尝试的稳定UUID"}`，并携带管理员Cookie和CSRF头；网络重试沿用该UUID，确认FAILED后的新尝试才换UUID。
+
 DashScope图片调用现在使用任务中保留的模型快照，实际请求与额度预留、消费审计记录使用同一个模型，避免被全局默认模型覆盖。
 
 ## 工具扩展
@@ -42,6 +44,8 @@ DashScope图片调用现在使用任务中保留的模型快照，实际请求�
 
 gateway配置实际Sentinel路由规则，超限返回429和 `Retry-After`，不会继续调用下游。默认每实例每路由50 QPS；images、documents为20，orchestrator为30。环境变量为 `GATEWAY_TRAFFIC_ENABLED`、`GATEWAY_ROUTE_QPS`、`GATEWAY_RATE_INTERVAL_SECONDS`、`GATEWAY_IMAGE_QPS`、`GATEWAY_DOCUMENT_QPS`、`GATEWAY_EXECUTION_QPS`。也可在Nacos的gateway配置中覆盖 `app.traffic.routes.<路由名>`；控制台规则更新可覆盖启动规则。
 
+Nacos或环境变量中的这些值是启动规则，修改后重启gateway生效；运行中实时调整应使用Sentinel控制台发布规则。限流测试已验证下游只收到获准的一次请求，超限请求不会继续派发。
+
 这些是单gateway实例的路由限流，不等于跨节点或按用户的全局配额。现有模型层自定义 `ModelCircuit` 原本已存在，本次把阈值、窗口、熔断时长和探测租约改为可配置，并补足实际模型边界及指标验证；没有为了使用注解而更换成另一套熔断器。
 
 模型服务中可配置：
@@ -58,8 +62,14 @@ app:
 
 Redis可用时共享模型熔断状态，故障时使用进程内有限熔断。相关指标包括 `gateway.traffic.blocked`、`ai.model.circuit.admission`、`ai.model.circuit.results`、`ai.model.circuit.redis.errors`，可在各服务 `/actuator/prometheus` 查看对应Prometheus名称；现有请求观测和trace继续保留。
 
+标准Compose已透传上述视觉/限流参数。熔断的Compose变量为 `MODEL_CIRCUIT_FAILURE_THRESHOLD`、`MODEL_CIRCUIT_WINDOW_SECONDS`、`MODEL_CIRCUIT_OPEN_SECONDS`、`MODEL_CIRCUIT_PROBE_SECONDS`，分别映射到上面的四个Spring配置项。修改环境后需重建对应容器。公开且不含真实凭据的模板见 [model-routing.env.example](../config/model-routing.env.example)。
+
 ## 验证边界
 
-模型供应商连接reset的根因不能仅凭客户端异常判断。新增本地故障fixture验证“供应商已读完请求再断开”时不会重发付费POST，未知消费不会按0结算。文档答案评估的生产原始异常输出未保留，本次不凭猜测放宽事实核验，也不声称真实文档问答已全部验收。
+模型供应商连接reset的根因不能仅凭客户端异常判断。新增本地故障fixture验证“供应商已读完请求再断开”时不会重发付费POST，未知消费不会按0结算。
+
+只读历史测试账户账本确认了文档评估的格式故障：facts模型返回一段解释，末尾才输出合法JSON。现在接受一个末尾、独立成行的判决JSON或单个JSON围栏，继续严格检查字段、布尔类型、claims字符串、重复键及判定一致性；多个判决、内联引用、截断与非法结构仍拒绝。没有新增付费重试，原调用标识和真实用量保持不变。该格式故障已由原始回执复现并修复，生产付费问答仍未重新验收。
 
 提示词画廊使用真实本地Milvus测试持久化、upsert与metadata过滤，模型部分使用可控fixture；未调用真实OpenAI做全量embedding导入。服务器扩容、SSH/Nacos安全配置、真实支付和模型验收仍属独立运维事项。
+
+最终验证：完整后端先执行 `mvn -ntp -fae clean verify -Dmaven.compiler.fork=true`（附带真实源目录和Milvus集成开关），全部模块成功。最后两处RAG修复合并后执行 `mvn -ntp -pl agent-rag-service -am verify`，RAG为125项、0失败/错误、2项环境跳过。最终各模块报告合计557项、552通过、5项环境跳过、0失败/错误；无基线排除。前端16组测试与生产构建全部通过，Compose默认配置及可选画廊配置通过 `config --quiet` 校验。

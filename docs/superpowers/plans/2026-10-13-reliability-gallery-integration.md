@@ -28,23 +28,32 @@
 
 Files: `agent-chat-service/.../conversation/sync/ConversationSnapshotService.java`, `ConversationSnapshotController.java`, migration `V4__conversation_snapshots.sql`; frontend `src/lib/conversationSync.ts` and integration in `useConversations.ts`.
 
-- [ ] Write/run failing owner isolation, optimistic concurrency, tombstone, payload size and metadata sanitization tests.
-- [ ] Implement bounded index/detail reads and compare-and-set writes, preserving stable conversation/request IDs.
-- [ ] Implement initial merge, explicit deletion tombstones, serialized debounced writes and account epoch cancellation. Surface sync failures without losing local data.
-- [ ] Run backend and frontend recovery tests.
+- [x] Write/run failing owner isolation, optimistic concurrency, tombstone, payload size and metadata sanitization tests.
+- [x] Implement bounded index/detail reads and compare-and-set writes, preserving stable conversation/request IDs.
+- [x] Implement initial merge, explicit deletion tombstones, serialized debounced writes and account epoch cancellation. Surface sync failures without losing local data.
+- [x] Run backend and frontend recovery tests.
 
 ## Root task 2: uploaded source image preview recovery
 
 Files: existing media `ImageAssetService` and controller; frontend `src/lib/attachmentPreviews.ts` and hook integration.
 
-- [ ] Write/run failing owner/READY and expired-upload-token preview tests.
-- [ ] Issue fresh short-lived GET URLs only for owned READY assets. Upload authorization expiry is distinct from viewing previously uploaded assets.
-- [ ] Restore previews after reload and handle expiry without persisting signed URLs.
-- [ ] Run media/security and frontend preview tests.
+- [x] Write/run failing owner/READY and expired-upload-token preview tests.
+- [x] Issue fresh short-lived GET URLs only for owned READY assets. Upload authorization expiry is distinct from viewing previously uploaded assets.
+- [x] Restore previews after reload and handle expiry without persisting signed URLs.
+- [x] Run media/security and frontend preview tests.
 
 ## Agent deliverables and integration
 
-- [ ] Agent 1 provides regression tests, isolated commits and exact remaining limitations.
-- [ ] Agent 2 clones and parses every referenced category, records upstream revision/license and parser report, provides live VectorStore configuration and semantic search/chat examples.
-- [ ] Review commits, resolve shared dependency/config/API interfaces, compile and run relevant/full regression suites.
-- [ ] Document configuration, migration/backfill/import commands, test evidence and unverified external integrations. Never claim a real remote import from mock tests.
+- [x] Agent 1 provides regression tests, isolated commits and exact remaining limitations.
+- [x] Agent 2 clones and parses every referenced category, records upstream revision/license and parser report, provides live VectorStore configuration and semantic search/chat examples.
+- [x] Review commits, resolve shared dependency/config/API interfaces, compile and run relevant/full regression suites.
+- [x] Document configuration, migration/backfill/import commands, test evidence and unverified external integrations. Never claim a real remote import from mock tests.
+
+## Final evidence
+
+- Full clean backend verify succeeded; final scoped RAG verify succeeded after trailing metadata and historical grounding receipt regressions.
+- Latest reports: 557 tests, 552 passed, 5 environment skips, zero failures/errors; no baseline exclusions.
+- Frontend: all 16 test scripts and production build succeeded.
+- Real local Milvus test succeeded and cleaned its temporary collection. Full pinned catalog: 31 categories, 163 entries, 164 prompts, zero duplicates, 327 missing-field notices.
+- Cross-review reproduced then fixed stopped text recovery creating a missing execution, future-revision tombstone resurrection, new-turn-only storage quota failure, and prompt metadata after fences.
+- Historical production test receipts identified the grounding format issue; repaired without another model call or weakened verdict validation. Production paid acceptance, semantic OpenAI import and deployment were not performed.
