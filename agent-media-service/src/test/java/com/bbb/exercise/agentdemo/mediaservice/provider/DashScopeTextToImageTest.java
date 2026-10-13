@@ -26,6 +26,7 @@ class DashScopeTextToImageTest {
             var settings=new ZineProperties();settings.setBaseUrl("http://127.0.0.1:"+server.getAddress().getPort());settings.setEndpoint("/generate");
             var result=new DashScopeImageGenerationClient(settings).generate(source,"a red panda","test-key").block(Duration.ofSeconds(10));
             assertThat(result.imageUrl()).isEqualTo("https://example.test/output.png");
+            assertThat(payload.get().path("model").asText()).isEqualTo(settings.getModel());
             JsonNode content=payload.get().at("/input/messages/0/content");
             assertThat(content.size()).isEqualTo(image?2:1);
             assertThat(content.get(content.size()-1).path("text").asText()).isEqualTo("a red panda");

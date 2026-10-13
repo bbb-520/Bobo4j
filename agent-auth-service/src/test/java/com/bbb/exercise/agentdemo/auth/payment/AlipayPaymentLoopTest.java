@@ -54,6 +54,7 @@ class AlipayPaymentLoopTest {
                 new ClassPathResource("db/migration/V6__free_tokens.sql"),
                 new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql")).execute(ds);
         var tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
+        try(var connection=ds.getConnection()){new db.migration.V11__refund_attempts().migrate(connection);}
         new BillingService(db, tx, 10000, 200000, 1000000, 500000).createWallet("alice", 0);
         orders = new PaymentService(db, tx);
         var generator = KeyPairGenerator.getInstance("RSA");

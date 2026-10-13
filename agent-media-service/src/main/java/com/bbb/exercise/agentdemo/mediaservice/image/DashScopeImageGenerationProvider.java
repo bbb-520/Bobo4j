@@ -24,7 +24,7 @@ final class DashScopeImageGenerationProvider implements ImageGenerationProvider 
             return Mono.error(new IllegalStateException("DashScope 图片适配器未配置"));
         }
 
-        return client.generate(request.imageReference(), request.prompt(), request.apiKey())
+        return client.generate(request.imageReference(), request.prompt(), request.apiKey(), request.model())
                 .map(
                         result ->
                                 new Result(

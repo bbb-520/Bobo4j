@@ -35,6 +35,11 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
 
     @Override
     public Mono<ZineImageResult> generate(String imageDataUrl, String prompt, String apiKey) {
+        return generate(imageDataUrl,prompt,apiKey,properties.getModel());
+    }
+    @Override
+    public Mono<ZineImageResult> generate(String imageDataUrl,String prompt,String apiKey,String model) {
+        if(model==null||model.isBlank())return Mono.error(new IllegalArgumentException("图片任务缺少已计费模型快照"));
         if (!properties.isEnabled()) {
             return Mono.error(new IllegalStateException("图片生成服务未启用，请设置 app.zine.enabled=true"));
         }
@@ -49,7 +54,7 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
         Map<String, Object> request =
                 Map.of(
                         "model",
-                        properties.getModel(),
+                        model,
                         "input",
                         Map.of(
                                 "messages",

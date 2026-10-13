@@ -51,8 +51,11 @@ public class PaymentReconciliation {
     }
 
     public PaymentRefundService.Refund refund(String orderId, String actor, String reason) {
+        return refund(orderId,actor,reason,null);
+    }
+    public PaymentRefundService.Refund refund(String orderId, String actor, String reason,String requestId) {
         if (!properties.getAlipay().isEnabled()) throw new BillingException(503,"支付宝尚未启用");
-        var refund = refunds.begin(orderId,actor,reason);
+        var refund = requestId==null?refunds.begin(orderId,actor,reason):refunds.begin(orderId,actor,reason,requestId);
         syncRefund(refund);
         return refunds.get(refund.id());
     }

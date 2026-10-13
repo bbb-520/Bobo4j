@@ -5,6 +5,9 @@ import reactor.core.publisher.Mono;
 /** Zine 图片生成客户端契约，统一图片输入、提示词及供应商生成结果。 */
 public interface ZineImageGenerationClient {
     Mono<ZineImageResult> generate(String imageDataUrl, String prompt, String apiKey);
+    default Mono<ZineImageResult> generate(String imageDataUrl,String prompt,String apiKey,String model) {
+        return Mono.error(new IllegalStateException("图片适配器不支持任务模型快照"));
+    }
 
     /** 图片供应商的生成回执，包含图片地址、请求号和输入输出用量。 */
     record ZineImageResult(

@@ -13,14 +13,21 @@ public class PaymentRefundService {
     public PaymentRefundService(JdbcTemplate db, TransactionTemplate tx) { this.db = db; this.tx = tx; }
 
     public Refund begin(String orderId, String actor, String reason) {
+        String key = java.util.UUID.nameUUIDFromBytes((actor+"\n"+(reason==null?"":reason.trim())).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        return begin(orderId,actor,reason,key);
+    }
+    public Refund begin(String orderId, String actor, String reason, String requestId) {
         if (actor == null || actor.isBlank() || actor.length()>64 || reason == null || reason.isBlank() || reason.length() > 256)
             throw new BillingException(400, "退款必须提供操作者及 1～256 字的原因");
+        if(requestId==null||requestId.isBlank()||requestId.length()>64)throw new BillingException(400,"退款请求标识必须为 1～64 字");
         return tx.execute(s -> {
             var orders = db.queryForList("SELECT * FROM payment_order WHERE id=? FOR UPDATE", orderId);
             if (orders.isEmpty()) throw new BillingException(404, "订单不存在");
             var order = orders.getFirst();
-            var existing = db.query("SELECT * FROM payment_refund WHERE order_id=?", (rs,n) -> map(rs), orderId);
-            if (!existing.isEmpty()) return existing.getFirst();
+            var repeated=db.query("SELECT * FROM payment_refund WHERE order_id=? AND request_key=?",(rs,n)->map(rs),orderId,requestId);
+            if(!repeated.isEmpty())return repeated.getFirst();
+            var existing = db.query("SELECT * FROM payment_refund WHERE order_id=? ORDER BY attempt_no DESC", (rs,n) -> map(rs), orderId);
+            if (!existing.isEmpty()&&!"FAILED".equals(existing.getFirst().status())) return existing.getFirst();
             if (!"ALIPAY".equals(order.get("channel")) || !"PAID".equals(order.get("status")))
                 throw new BillingException(409, "仅已到账的支付宝订单支持原路退款");
             long cents = ((Number)order.get("amount_cents")).longValue();
@@ -30,7 +37,8 @@ public class PaymentRefundService {
             long available = ((Number)wallet.get("balance_micros")).longValue() - ((Number)wallet.get("reserved_micros")).longValue();
             if (available < micros) throw new BillingException(409, "可用余额不足，已消费或预留的资金不能原路退回");
             String id = UUID.randomUUID().toString().replace("-", "");
-            db.update("INSERT INTO payment_refund(id,order_id,amount_cents,actor,reason) VALUES(?,?,?,?,?)", id,orderId,cents,actor,reason.trim());
+            int attemptNo=existing.isEmpty()?1:db.queryForObject("SELECT MAX(attempt_no)+1 FROM payment_refund WHERE order_id=?",Integer.class,orderId);
+            db.update("INSERT INTO payment_refund(id,order_id,amount_cents,actor,reason,attempt_no,request_key) VALUES(?,?,?,?,?,?,?)", id,orderId,cents,actor,reason.trim(),attemptNo,requestId);
             db.update("UPDATE billing_wallet SET balance_micros=balance_micros-?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?", micros,user);
             PaymentService.ledger(db,orderId,id,"REFUND_HOLD",-micros,actor);
             db.update("UPDATE payment_order SET status='REFUNDING',state_version=state_version+1,qr_code=NULL WHERE id=?", orderId);
@@ -44,9 +52,12 @@ public class PaymentRefundService {
         return rows.getFirst();
     }
     public Refund forOrder(String orderId) {
-        var rows = db.query("SELECT * FROM payment_refund WHERE order_id=?", (rs,n) -> map(rs),orderId);
+        var rows = db.query("SELECT * FROM payment_refund WHERE order_id=? ORDER BY attempt_no DESC", (rs,n) -> map(rs),orderId);
         if (rows.isEmpty()) throw new BillingException(404,"此订单没有原路退款请求");
         return rows.getFirst();
+    }
+    public List<Refund> history(String orderId) {
+        return db.query("SELECT * FROM payment_refund WHERE order_id=? ORDER BY attempt_no",(rs,n)->map(rs),orderId);
     }
     public List<Refund> dueRefunds() {
         return db.query("SELECT * FROM payment_refund WHERE status='PENDING' AND next_check_at<=CURRENT_TIMESTAMP ORDER BY next_check_at LIMIT 20", (rs,n) -> map(rs));
