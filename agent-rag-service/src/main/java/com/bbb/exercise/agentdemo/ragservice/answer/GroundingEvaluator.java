@@ -14,6 +14,10 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.*;
 import org.springframework.stereotype.Component;
 import com.google.gson.*;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.*;
 
 /** Spring AI relevance and independent claim support are both required. ERROR never becomes PASS. */
@@ -128,19 +132,7 @@ public class GroundingEvaluator {
 
             usage[0] += facts.inputTokens();
             usage[1] += facts.outputTokens();
-            JsonObject verdict = JsonParser.parseString(facts.text()).getAsJsonObject();
-
-            if (!verdict.has("supported")
-                    || !verdict.get("supported").isJsonPrimitive()
-                    || !verdict.getAsJsonPrimitive("supported").isBoolean()
-                    || !verdict.has("unsupportedClaims")
-                    || !verdict.get("unsupportedClaims").isJsonArray()) {
-                throw new IllegalStateException("EVALUATOR_FORMAT_INVALID");
-            }
-
-            boolean pass =
-                    verdict.get("supported").getAsBoolean()
-                            && verdict.getAsJsonArray("unsupportedClaims").isEmpty();
+            boolean pass = factVerdict(facts.text());
 
             return result(
                     pass ? "PASS" : "FAIL", pass ? "SUPPORTED" : "FACT_SUPPORT_FAILED", usage);
@@ -172,6 +164,83 @@ public class GroundingEvaluator {
 
             return result("ERROR", "EVALUATION_UNAVAILABLE", usage);
         }
+    }
+
+    /** Parse the already-paid receipt locally. Never repair ambiguous output with another judge call. */
+    private static boolean factVerdict(String reply) {
+        String object = terminalVerdictObject(reply);
+        try (var reader = new JsonReader(new StringReader(object))) {
+            reader.setStrictness(Strictness.STRICT);
+            reader.beginObject();
+            var fields = new HashSet<String>();
+            Boolean supported = null;
+            List<String> claims = null;
+            while (reader.hasNext()) {
+                String name = reader.nextName();
+                if (!fields.add(name)) throw invalidVerdict();
+                switch (name) {
+                    case "supported" -> {
+                        if (reader.peek() != JsonToken.BOOLEAN) throw invalidVerdict();
+                        supported = reader.nextBoolean();
+                    }
+                    case "unsupportedClaims" -> {
+                        if (reader.peek() != JsonToken.BEGIN_ARRAY) throw invalidVerdict();
+                        reader.beginArray();
+                        claims = new ArrayList<>();
+                        while (reader.hasNext()) {
+                            if (reader.peek() != JsonToken.STRING) throw invalidVerdict();
+                            String claim = reader.nextString();
+                            if (claim.isBlank()) throw invalidVerdict();
+                            claims.add(claim);
+                        }
+                        reader.endArray();
+                    }
+                    default -> throw invalidVerdict();
+                }
+            }
+            reader.endObject();
+            if (reader.peek() != JsonToken.END_DOCUMENT
+                    || !fields.equals(Set.of("supported", "unsupportedClaims"))
+                    || supported == null || claims == null
+                    || supported != claims.isEmpty()) throw invalidVerdict();
+            return supported;
+        } catch (IOException malformed) {
+            throw new IllegalStateException("EVALUATOR_FORMAT_INVALID", malformed);
+        }
+    }
+
+    /** Only one terminal, standalone object is a verdict; JSON quoted inside prose is never selected. */
+    private static String terminalVerdictObject(String reply) {
+        String text = Objects.requireNonNull(reply).strip();
+        int fence = text.indexOf("```");
+        String prefix;
+        String object;
+        if (fence >= 0) {
+            if (!startsOnOwnLine(text, fence) || !text.endsWith("```")) throw invalidVerdict();
+            int openingEnd = text.indexOf('\n', fence + 3);
+            int closing = text.length() - 3;
+            if (openingEnd < 0 || closing <= openingEnd || !startsOnOwnLine(text, closing)) throw invalidVerdict();
+            String language = text.substring(fence + 3, openingEnd).strip();
+            if (!language.isEmpty() && !language.equalsIgnoreCase("json")) throw invalidVerdict();
+            prefix = text.substring(0, fence);
+            object = text.substring(openingEnd + 1, text.lastIndexOf('\n', closing - 1) + 1).strip();
+            if (object.contains("```")) throw invalidVerdict();
+        } else {
+            int opening = text.indexOf('{');
+            if (opening < 0 || !startsOnOwnLine(text, opening)) throw invalidVerdict();
+            prefix = text.substring(0, opening);
+            object = text.substring(opening);
+        }
+        if (prefix.indexOf('{') >= 0 || prefix.indexOf('}') >= 0
+                || !object.startsWith("{") || !object.endsWith("}")) throw invalidVerdict();
+        return object;
+    }
+
+    private static boolean startsOnOwnLine(String text, int offset) {
+        return text.substring(text.lastIndexOf('\n', offset - 1) + 1, offset).isBlank();
+    }
+    private static IllegalStateException invalidVerdict() {
+        return new IllegalStateException("EVALUATOR_FORMAT_INVALID");
     }
 
     private Evaluation result(String status, String reason, long[] usage) {
