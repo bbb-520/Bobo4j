@@ -9,6 +9,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import com.bbb.exercise.agentdemo.api.dto.ChatAttachmentRequest;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -23,6 +26,27 @@ import java.util.List;
 public class ImageJobController {
     private final ChatIdentityResolver identityResolver;
     private final ImageJobService jobs;
+
+    @PostMapping
+    public Mono<ResponseEntity<ImageJobService.JobView>> create(
+            @RequestBody CreateRequest request, ServerWebExchange exchange) {
+        return identityResolver.resolveRequired(exchange)
+                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.accepted().body(
+                        jobs.create(identity, request.requestId(), request.conversationId(),
+                                request.prompt(), request.attachments()))))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @GetMapping("/by-request/{requestId}")
+    public Mono<ResponseEntity<ImageJobService.JobView>> byRequest(
+            @PathVariable String requestId, ServerWebExchange exchange) {
+        return identityResolver.resolveRequired(exchange)
+                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.ok(jobs.getByRequest(identity, requestId))))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    public record CreateRequest(String requestId, String conversationId, String prompt,
+                                List<ChatAttachmentRequest> attachments) {}
 
     // 1. 任务查询：任务状态和下载入口均使用当前认证身份核对归属。
     @GetMapping("/{jobId}")

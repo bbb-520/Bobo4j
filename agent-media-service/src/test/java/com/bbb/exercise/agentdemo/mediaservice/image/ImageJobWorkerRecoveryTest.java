@@ -44,6 +44,7 @@ class ImageJobWorkerRecoveryTest {
                                 null,
                                 LocalDateTime.now(),
                                 null,
+                                null,
                                 null));
         var worker = new ImageJobWorker(jobs, storage, keys, models, providers, billing);
 

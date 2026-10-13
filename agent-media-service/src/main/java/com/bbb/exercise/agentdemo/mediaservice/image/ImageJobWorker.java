@@ -105,7 +105,8 @@ public class ImageJobWorker {
                     throw new IllegalStateException("平台图片凭据未配置");
                 }
 
-                String source = storage.signedGetUrl(job.sourceObjectKey());
+                String source = job.sourceObjectKey() == null || job.sourceObjectKey().isBlank()
+                        ? null : storage.signedGetUrl(job.sourceObjectKey());
 
                 try {
                     billing.reserve(identity, job.id(), "IMAGE", job.model())

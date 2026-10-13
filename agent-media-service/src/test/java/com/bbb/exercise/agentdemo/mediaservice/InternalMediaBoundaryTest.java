@@ -225,6 +225,7 @@ class InternalMediaBoundaryTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 null));
         var client =
                 WebTestClient.bindToController(

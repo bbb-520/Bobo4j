@@ -19,6 +19,10 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 /** 图片生成任务的持久化、所有权校验和状态转换。 */
 @Service
@@ -42,34 +46,48 @@ public class ImageJobService {
             String conversationId,
             String question,
             List<ChatAttachmentRequest> attachments) {
-        if (identity == null) {
-            throw new IllegalArgumentException("身份不能为空");
-        }
+        return createJob(identity, null, conversationId, question, attachments);
+    }
 
+    /** Browser request IDs survive response loss and must never create a second paid job. */
+    public JobView create(ChatIdentity identity, String requestId, String conversationId,
+                          String prompt, List<ChatAttachmentRequest> attachments) {
+        requireUuid(requestId, "requestId");
+        requireUuid(conversationId, "conversationId");
+        return createJob(identity, requestId, conversationId, prompt, attachments);
+    }
+
+    private JobView createJob(ChatIdentity identity, String requestId, String conversationId,
+                              String question, List<ChatAttachmentRequest> attachments) {
+        if (identity == null || !identity.authenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
+        }
         if (conversationId == null || conversationId.isBlank()) {
-            throw new IllegalArgumentException("会话 ID 不能为空");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "会话 ID 不能为空");
         }
-
-        if (attachments == null || attachments.isEmpty()) {
-            throw new IllegalArgumentException("请先上传一张照片");
+        List<ChatAttachmentRequest> sources = attachments == null ? List.of() : attachments;
+        if (sources.size() > 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片生成最多支持一张参考图片");
         }
-
-        if (attachments.size() > 1) {
-            throw new IllegalArgumentException("当前一次只支持一张照片");
+        ChatAttachmentRequest attachment = sources.isEmpty() ? null : sources.getFirst();
+        if (!sources.isEmpty() && (attachment == null || attachment.getAssetId() == null
+                || attachment.getAssetId().isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片资产 ID 不能为空");
         }
-
-        ChatAttachmentRequest attachment = attachments.get(0);
-
-        if (attachment == null
-                || attachment.getAssetId() == null
-                || attachment.getAssetId().isBlank()) {
-            throw new IllegalArgumentException("图片资产 ID 不能为空");
+        String prompt = question == null ? "" : question.trim();
+        if (prompt.isBlank()) {
+            if (attachment == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请输入想要生成的图片内容");
+            }
+            prompt = "请根据这张照片进行一次有创意的二次生成。";
         }
-
-        if (question != null
-                && question.codePointCount(0, question.length()) > MAX_PROMPT_CODE_POINTS) {
-            throw new IllegalArgumentException("问题过长（上限 " + MAX_PROMPT_CODE_POINTS + " 字符）");
+        if (prompt.codePointCount(0, prompt.length()) > MAX_PROMPT_CODE_POINTS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "提示词过长（上限 " + MAX_PROMPT_CODE_POINTS + " 字符）");
         }
+        String fingerprint = hash(conversationId + "\0" + prompt + "\0"
+                + (attachment == null ? "" : attachment.getAssetId()));
+        StoredRequest previous = findRequest(identity, requestId);
+        if (previous != null) return replay(identity, previous, fingerprint);
 
         AuthModelClient.SelectedModel selected =
                 modelProfiles.resolve(identity, ModelCapability.IMAGE);
@@ -80,8 +98,15 @@ public class ImageJobService {
             throw new IllegalStateException("请先在用户页配置图片生成 Agent 和 API Key");
         }
 
-        ImageAssetService.AssetRecord source =
-                assets.requireReady(identity, attachment.getAssetId());
+        ImageAssetService.AssetRecord source = null;
+        if (attachment != null) {
+            try {
+                source = assets.requireReady(identity, attachment.getAssetId());
+            } catch (IllegalArgumentException invalidAsset) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "参考图片不可用或已过期，请重新上传", invalidAsset);
+            }
+        }
         var wallet = billing.wallet(identity).block(Duration.ofSeconds(5));
 
         if (wallet == null || wallet.blocked()) {
@@ -89,10 +114,7 @@ public class ImageJobService {
         }
 
         String jobId = UUID.randomUUID().toString();
-        String ownerPart =
-                source.objectKey().split("/").length > 1
-                        ? source.objectKey().split("/")[1]
-                        : "private";
+        String ownerPart = hash(identity.tenantId() + "\0" + identity.userId()).substring(0, 24);
         LocalDateTime now = LocalDateTime.now();
         String outputKey =
                 ossProperties.getOutputPrefix()
@@ -103,30 +125,32 @@ public class ImageJobService {
                         + "/"
                         + jobId
                         + ".png";
-        String prompt =
-                question == null || question.isBlank() ? "请根据这张照片进行一次有创意的二次生成。" : question.trim();
-        String mode = inferMode(prompt);
+        String mode = source == null ? "text-to-image" : inferMode(prompt);
 
         try {
             jdbc.update(
-                    "INSERT INTO image_job(id,tenant_id,user_id,conversation_id,source_asset_id,source_object_key,output_object_key,mode,language,prompt,provider,model,status,created_at,updated_at,expires_at) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'QUEUED',?,?,?)",
+                    "INSERT INTO image_job(id,tenant_id,user_id,conversation_id,source_asset_id,source_object_key,output_object_key,mode,language,prompt,provider,model,client_request_id,request_fingerprint,status,created_at,updated_at,expires_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'QUEUED',?,?,?)",
                     jobId,
                     identity.tenantId(),
                     identity.userId(),
                     conversationId,
-                    source.id(),
-                    source.objectKey(),
+                    source == null ? null : source.id(),
+                    source == null ? null : source.objectKey(),
                     outputKey,
                     mode,
                     "chinese",
                     prompt,
                     provider.name(),
                     model,
+                    requestId,
+                    requestId == null ? null : fingerprint,
                     now,
                     now,
                     now.plusDays(30));
         } catch (org.springframework.dao.DuplicateKeyException e) {
+            StoredRequest winner = findRequest(identity, requestId);
+            if (winner != null) return replay(identity, winner, fingerprint);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "已有图片任务处理中，请等待完成");
         }
 
@@ -139,6 +163,45 @@ public class ImageJobService {
 
         return view(identity, jobId);
     }
+
+    public JobView getByRequest(ChatIdentity identity, String requestId) {
+        requireUuid(requestId, "requestId");
+        if (identity == null || !identity.authenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
+        }
+        StoredRequest stored = findRequest(identity, requestId);
+        if (stored == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "图片任务不存在");
+        return view(identity, stored.id());
+    }
+
+    private StoredRequest findRequest(ChatIdentity identity, String requestId) {
+        if (requestId == null) return null;
+        var found = jdbc.query("SELECT id,request_fingerprint FROM image_job WHERE client_request_id=? AND tenant_id=? AND user_id=?",
+                (rs, n) -> new StoredRequest(rs.getString("id"), rs.getString("request_fingerprint")),
+                requestId, identity.tenantId(), identity.userId());
+        return found.isEmpty() ? null : found.getFirst();
+    }
+
+    private JobView replay(ChatIdentity identity, StoredRequest stored, String fingerprint) {
+        if (!fingerprint.equals(stored.fingerprint())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "同一 requestId 不能用于不同的图片生成参数");
+        }
+        return view(identity, stored.id());
+    }
+
+    private static void requireUuid(String value, String name) {
+        if (value == null || !value.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + " 必须是 UUID");
+        }
+    }
+
+    private static String hash(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private record StoredRequest(String id, String fingerprint) {}
 
     // 2. 任务领取：条件更新领取排队或租约过期任务，减少并发重复处理。
     public JobRecord claimNext(String workerId, Duration leaseDuration) {
@@ -436,7 +499,8 @@ public class ImageJobService {
                 job.completedAt(),
                 url,
                 job.rationale(),
-                job.errorMessage());
+                job.errorMessage(),
+                job.requestId());
     }
 
     private static JobRecord map(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -458,7 +522,8 @@ public class ImageJobService {
                 rs.getString("error_message"),
                 rs.getTimestamp("created_at").toLocalDateTime(),
                 nullable(rs, "started_at"),
-                nullable(rs, "completed_at"));
+                nullable(rs, "completed_at"),
+                rs.getString("client_request_id"));
     }
 
     private static LocalDateTime nullable(java.sql.ResultSet rs, String column)
@@ -494,7 +559,8 @@ public class ImageJobService {
             /** Worker 成功领取任务的时间。 */
             LocalDateTime startedAt,
             /** 成功或最终失败的时间。 */
-            LocalDateTime completedAt) {}
+            LocalDateTime completedAt,
+            String requestId) {}
 
     /** 图片任务的客户端视图，展示进度、最终图片和失败说明。 */
     public record JobView(
@@ -510,7 +576,8 @@ public class ImageJobService {
             LocalDateTime completedAt,
             String imageUrl,
             String rationale,
-            String error) {}
+            String error,
+            String requestId) {}
 
     /** 可发布图片任务的来源快照，提供成品对象键及原始提示词。 */
     public record PublishSource(String jobId, String outputObjectKey, String prompt) {}

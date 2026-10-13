@@ -13,6 +13,7 @@ import reactor.netty.http.client.HttpClient;
 
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 
 /** Shared DashScope multimodal image-edit adapter used by chat and media. */
 @Slf4j
@@ -42,6 +43,9 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
             return Mono.error(new IllegalStateException("请先配置阿里云 API Key"));
         }
 
+        List<Map<String, String>> content = new ArrayList<>();
+        if (imageDataUrl != null && !imageDataUrl.isBlank()) content.add(Map.of("image", imageDataUrl));
+        content.add(Map.of("text", prompt));
         Map<String, Object> request =
                 Map.of(
                         "model",
@@ -54,9 +58,7 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
                                                 "role",
                                                 "user",
                                                 "content",
-                                                List.of(
-                                                        Map.of("image", imageDataUrl),
-                                                        Map.of("text", prompt))))),
+                                                content))),
                         "parameters",
                         Map.of(
                                 "prompt_extend",

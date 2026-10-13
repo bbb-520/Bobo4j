@@ -7,6 +7,7 @@ import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /** Adapter for providers exposing a compatible JSON image endpoint. Endpoint/model are configurable per profile. */
 final class OpenAiCompatibleImageGenerationProvider implements ImageGenerationProvider {
@@ -31,20 +32,16 @@ final class OpenAiCompatibleImageGenerationProvider implements ImageGenerationPr
             return Mono.error(new IllegalStateException("图片模型 API Key 未配置"));
         }
 
-        Map<String, Object> body =
-                Map.of(
-                        "model",
-                        request.model(),
-                        "prompt",
-                        request.prompt(),
-                        "image_url",
-                        request.imageReference(),
-                        "n",
-                        1);
+        boolean editing = request.imageReference() != null && !request.imageReference().isBlank();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", request.model());
+        body.put("prompt", request.prompt());
+        body.put("n", 1);
+        if (editing) body.put("image_url", request.imageReference());
 
         return webClient
                 .post()
-                .uri("/images/edits")
+                .uri(editing ? "/images/edits" : "/images/generations")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + request.apiKey())
                 .bodyValue(body)

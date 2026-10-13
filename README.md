@@ -6,6 +6,53 @@ BOBO4J 把模型调用、知识检索、工具执行和消费结算拆分为边�
 
 本仓库是**后端与基础设施**聚合工程，配套前端为独立仓库 [Bobo_web](https://github.com/bbb-520/Bobo_web)（React 18 + TypeScript + Vite）。前后端整体统称 **BOBO4J**，源码目录与 Maven 模块名保留 `agent-*` 命名。
 
+## 五种聊天模式与图片生成（2026-10-13）
+
+本次补全纯文字生图和独立图片任务入口。默认使用“智能聊天”，明确指令如“帮我生成一张图片：海边日落”会自动切换图片生成；回复上方标注本次实际模式。询问原理、教程、翻译、提示词写作和否定语句保留为问答，模糊创作需求可手动选择图片生成。
+
+| 模式 | 输入与用途 |
+| --- | --- |
+| 智能聊天 | 文字、图片、文件或混合附件；自动选择问答类型，明确生图指令自动生成 |
+| 文本聊天 | 纯文字，不沿用旧图片或文件；明确生图指令仍可转为纯文字生图 |
+| 图片多模态 | 识别、理解、比较图片，最多 3 张，支持沿用图片追问 |
+| 文件多模态 | 文件概要、检索、问答，可搭配图片，支持沿用文件会话 |
+| 图片生成 | 纯文字生成一张图片，或上传一张参考图编辑；不接收文档或多张参考图 |
+
+普通附件最多 8 个，图片最多 3 张、每张 20 MiB，文件每份 100 MiB；扫描 PDF 暂不支持 OCR。参考图片建议使用 JPEG/PNG/WebP/GIF；资产上传接口不支持 BMP/TIFF，需先转换格式。
+
+图片生成先持久化客户端请求 UUID，再创建服务端任务；刷新、响应丢失和重试均核对同一请求，不另建收费任务。已受理后显示独立任务卡，输入框解除本页等待。上传及受理等待有 2 分钟上限，上传失败需重新选择文件；过期或不可用参考图返回明确的 400。任务查询每次最多等待 15 秒，列表暂时不可用时仍继续查询本地已受理任务。失败终态及实际模式在刷新后保留。
+
+停止按钮停止本页等待；已受理的供应商任务仍继续，完成后可刷新查看，也会按实际结果结算。停止意图会持久化，刷新只查询，不补发未受理任务。免费 100 万 Token 仍通用于所有模型，图片优先实际 Token，无 Token 回执按现有价格折算；查询和幂等重放不产生新消费。
+
+### 图片任务 API 与配置
+
+- `POST /api/image-jobs`：登录、`media:generate` 权限及 CSRF 校验；请求包含 `requestId`、`conversationId`（UUID）、`prompt`、可选 `attachments`（一个自己的 READY 图片资产）。返回 202 和任务快照。
+- `GET /api/image-jobs/by-request/{requestId}`：只查询当前用户自己的请求，缺失返回 404；相同请求 ID 但提示词/来源不同返回 409。
+- `GET /api/image-jobs/{jobId}` 与 `GET /api/image-jobs?conversationId=...`：查询当前用户任务和恢复结果。
+- 新增 Media 的 `V5__media_text_to_image.sql`：来源资产改为可空，增加请求指纹及 `(tenant_id,user_id,client_request_id)` 唯一索引，旧参考图入口保留。唯一索引与现有用户活跃任务约束共同限制重复任务。
+
+配置在 `agent-media-service/src/main/resources/application.yml`，生产以 `/opt/agentdemo/compose.json` 的 Media 环境变量覆盖。通过编辑部署文件、执行 `docker compose -f /opt/agentdemo/compose.json up -d --no-deps agent-media-service` 应用；不要把密钥写入 GitHub 或输出完整环境变量。
+
+| 属性 | 用途 |
+| --- | --- |
+| `IMAGE_JOBS_ENABLED` / `ZINE_ENABLED` | 开启任务处理 / 生图供应商，当前均为 true |
+| `PLATFORM_IMAGE_MODEL` | 生图型号，当前 `qwen-image-3.0-pro` |
+| `ZINE_IMAGE_BASE_URL` / `ZINE_IMAGE_ENDPOINT` | DashScope 接口地址 / 多模态生成路径 |
+| `ZINE_IMAGE_SIZE` / `ZINE_IMAGE_TIMEOUT` | 输出尺寸 / 单次供应商调用超时，默认 `1024*1707` / `180s` |
+| `IMAGE_JOBS_LEASE_DURATION` / `IMAGE_JOBS_MAX_ATTEMPTS` | Worker 租约 / 最大尝试次数，默认 5m / 2；未知结果不凭超时重复派发 |
+| `OSS_ENABLED` / `ALIYUN_OSS_REGION` / `ALIYUN_OSS_BUCKET` / `ALIYUN_OSS_ENDPOINT` | 输出及参考图片存储配置 |
+| `ALIYUN_OSS_ACCESS_KEY_ID` / `ALIYUN_OSS_ACCESS_KEY_SECRET` | OSS 凭据，仅部署环境保存 |
+
+Qwen 文生图请求只包含 text，图生图增加 image；格式以[阿里云图像生成与编辑接口文档](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)为准。模型 Key 继续通过已有用户/平台模型配置解析。
+
+本次验证：完整后端 Reactor 共 462 项测试，457 项通过、5 项环境集成测试跳过，0 失败/错误；独立发布副本继续排除依赖原始工作区部署文件路径的 `DeploymentAssetsContractTest#deploymentAssetsRemainPresentAtRepositoryRoot`。前端 15 组测试脚本及生产构建通过，其中模式路由 35 项、图片请求恢复 13 项；复核问题均先复现失败再修复。
+
+2026-10-13 已部署到 `https://www.boboo.xin/`，发布目录 `/opt/agentdemo/releases/20261013-image-modes-v1` 保留数据库、Compose、旧应用备份和验收记录。仅更新 Media 与前端镜像，V5 迁移成功，媒体 JAR、全部 21 个静态文件及公开入口资源与测试产物哈希一致；15 个容器运行正常，13 项已配置健康检查均通过，匿名请求查询返回 401。
+
+真实供应商验收：隔离账户分别完成纯文字生图、单参考图编辑，OSS 成品均返回 200；各次幂等重放和按请求查询返回同一个任务，参数冲突返回 409；每次只记一条消费、扣 100,000 免费 Token，现金扣费 0。测试账户剩余 800,000 Token、无在途占用，已禁用并撤销全部会话，回执和附件保留审计。
+
+线上回归的实际范围：文字聊天、纯图片理解与追问、文档上传/索引/摘要、重排序检索及公开纯文档概述均有成功回执。完整文档问答与图片文档混合问答**本轮未全部通过验收**：曾发生向量/重排序连接中断，以及答案评估不可用。前两次未知调用已自动进入 ABANDONED 并释放占用；评估失败进入 FAILED，未发布未经核验的答案。没有将未知用量改为零，也未用重复派发绕过对账。5 个隔离测试账户均已禁用、会话数为 0、现金余额/预留为 0、无账户占用，失败记录保留在发布目录。此限制属于现有文档模型链路的可用性，本次图片生成与模式划分未声称修复其全部外部调用问题。
+
 ## 附件异常与账户占用恢复（2026-10-13）
 
 修复文档/图片处理失败或刷新后，账户一直提示“处理中或待对账”且无法发送消息的问题。根因是供应商拒绝、连接建立失败、真正未知结果共用一个无限期等待状态，以及前端附件与创建请求的恢复循环没有截止时间。
