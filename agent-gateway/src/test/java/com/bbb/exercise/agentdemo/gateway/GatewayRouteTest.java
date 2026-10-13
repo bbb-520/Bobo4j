@@ -29,7 +29,7 @@ class GatewayRouteTest {
                         "/api/settings/models/**")
                 .doesNotContain("/api/settings/**");
         assertThat(Arrays.asList(GatewayRoutes.CHAT_PATHS))
-                .containsExactly("/api/chat/**", "/api/settings/visual-memory/**");
+                .containsExactly("/api/chat/**", "/api/settings/visual-memory/**", "/api/conversations/**");
         assertThat(Arrays.asList(GatewayRoutes.MEDIA_PATHS))
                 .contains("/api/image-assets/**", "/api/image-jobs/**")
                 .doesNotContain("/api/images/**");

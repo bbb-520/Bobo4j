@@ -397,3 +397,9 @@ mvn -pl agent-architecture-tests -am -Dmaven.compiler.fork=true test
 ## 服务器中间件使用
 
 实际服务器端口、SSH 隧道、Nacos 配置发布、数据库/Redis 查询和容器配置生效方式见 [服务器中间件使用说明](docs/middleware-operations.md)。
+
+## 2026-10-13 可靠性与提示词画廊
+
+本次增加可审计退款重试、任务模型快照传递、账户隔离的会话同步和源图预览恢复；工具改为受控Spring AI回调注册，视觉记忆使用真实embedding，并接线可验证的路由限流和模型熔断。行为、配置、迁移及验证边界见 [可靠性改造说明](docs/reliability-upgrade.md)。
+
+新增GPT-Image2-Skill提示词画廊解析、独立Milvus向量库、分类过滤和ChatClient改写示例，默认关闭；导入与模型调用限管理员承担平台成本。配置、固定来源、完整运行命令和模糊搜索示例见 [提示词画廊说明](docs/prompt-gallery.md)。未配置模型凭据时不进行真实embedding导入，本次源码改动未直接部署到线上。
