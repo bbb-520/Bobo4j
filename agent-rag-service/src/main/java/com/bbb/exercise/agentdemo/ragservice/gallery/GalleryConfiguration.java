@@ -14,8 +14,8 @@ import org.springframework.context.annotation.*;
 @EnableConfigurationProperties(GalleryProperties.class)
 public class GalleryConfiguration {
     @Bean GalleryModels galleryModels(GalleryProperties properties,ObjectProvider<EmbeddingModel> embeddings,
-                                      ObjectProvider<ChatModel> models,ObjectProvider<ChatClient> clients) {
-        return new GalleryModels(properties,embeddings,models,clients);
+                                      ObjectProvider<ChatModel> models) {
+        return new GalleryModels(properties,embeddings,models);
     }
     @Bean(name="promptGalleryVectorStore",destroyMethod="close")
     MilvusGalleryVectorStore promptGalleryVectorStore(GalleryProperties properties,GalleryModels models) {

@@ -132,7 +132,12 @@ public final class MilvusGalleryVectorStore implements VectorStore, AutoCloseabl
     }
     private float[] checked(float[] vector) {
         if(vector==null || vector.length!=properties.getDimensions()) throw new GalleryNotReadyException("Gallery embedding dimensions mismatch; verify configured model and collection");
-        for(float value:vector) if(!Float.isFinite(value)) throw new GalleryNotReadyException("Gallery embedding contains nonfinite value");
+        boolean nonzero=false;
+        for(float value:vector) {
+            if(!Float.isFinite(value)) throw new GalleryNotReadyException("Gallery embedding contains nonfinite value");
+            if(value!=0) nonzero=true;
+        }
+        if(!nonzero) throw new GalleryNotReadyException("Gallery embedding is a zero vector; cosine similarity requires a nonzero vector");
         return vector;
     }
     @Override public synchronized void close() { if(client!=null) { client.close();client=null; } }

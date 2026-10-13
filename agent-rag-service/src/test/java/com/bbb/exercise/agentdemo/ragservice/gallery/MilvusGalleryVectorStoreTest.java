@@ -66,6 +66,12 @@ class MilvusGalleryVectorStoreTest {
         assertThatIllegalStateException().isThrownBy(()->store.add(List.of(new Document("tree")))).withMessageContaining("embedding space");
         verifyNoInteractions(embedding);
     }
+    @Test void rejectsZeroEmbeddingVectorBeforeCosineIndexWrite() {
+        var store=store();schemaReady(store);
+        when(embedding.embed(List.of("tree"))).thenReturn(List.of(new float[]{0,0,0}));
+        assertThatIllegalStateException().isThrownBy(()->store.add(List.of(new Document("tree")))).withMessageContaining("zero");
+        verify(client,never()).upsert(any());
+    }
     private void schemaReady(MilvusGalleryVectorStore store) {
         when(client.hasCollection(any())).thenReturn(true);
         var schema=CreateCollectionReq.CollectionSchema.builder().build();

@@ -13,12 +13,11 @@ public final class GalleryModels {
     private final GalleryProperties properties;
     private final ObjectProvider<EmbeddingModel> embeddings;
     private final ObjectProvider<ChatModel> chatModels;
-    private final ObjectProvider<ChatClient> chatClients;
     private volatile EmbeddingModel fallbackEmbedding;
     private volatile ChatClient fallbackChat;
     public GalleryModels(GalleryProperties properties,ObjectProvider<EmbeddingModel> embeddings,
-                         ObjectProvider<ChatModel> chatModels,ObjectProvider<ChatClient> chatClients) {
-        this.properties=properties;this.embeddings=embeddings;this.chatModels=chatModels;this.chatClients=chatClients;
+                         ObjectProvider<ChatModel> chatModels) {
+        this.properties=properties;this.embeddings=embeddings;this.chatModels=chatModels;
     }
     public synchronized EmbeddingModel embeddingModel() {
         var candidates=embeddings.orderedStream().limit(2).toList();
@@ -34,9 +33,6 @@ public final class GalleryModels {
     }
     public synchronized ChatClient chatClient() {
         if(!properties.isChatEnabled()) throw new GalleryNotReadyException("Set PROMPT_GALLERY_CHAT_ENABLED=true to enable explicit administrator prompt adaptation");
-        var clients=chatClients.orderedStream().limit(2).toList();
-        if(clients.size()>1) throw new GalleryNotReadyException("Provide exactly one platform ChatClient bean for prompt gallery");
-        if(!clients.isEmpty()) return clients.getFirst();
         if(fallbackChat==null) {
             var models=chatModels.orderedStream().limit(2).toList();
             if(models.size()>1) throw new GalleryNotReadyException("Provide exactly one platform ChatModel bean for prompt gallery");
@@ -48,6 +44,7 @@ public final class GalleryModels {
                         .baseUrl(properties.getBaseUrl()).model(properties.getChatModel()).maxCompletionTokens(1200)
                         .timeout(Duration.ofSeconds(90)).maxRetries(0).build()).build();
             }
+            // A business ChatClient may carry tools, memory and execution advisors. Reuse only the model.
             fallbackChat=ChatClient.builder(model).build();
         }
         return fallbackChat;
