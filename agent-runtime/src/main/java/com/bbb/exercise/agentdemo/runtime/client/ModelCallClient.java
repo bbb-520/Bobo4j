@@ -79,7 +79,7 @@ public class ModelCallClient {
         this(models, billing, http, circuit, first, idle, total, backupTotal);
         this.metrics = registry.getIfAvailable(SimpleMeterRegistry::new);
         io.micrometer.core.instrument.Gauge.builder(
-                        "ai.model.circuit.open", circuit, c -> c.openCount())
+                        "ai.model.circuit.local.open", circuit, c -> c.openCount())
                 .register(metrics);
     }
 
@@ -367,7 +367,7 @@ public class ModelCallClient {
 
             return result;
         } catch (ModelCallException failure) {
-            if (circuit != null && failure.retryable) {
+            if (circuit != null && failure.retryable && !"CIRCUIT_OPEN".equals(failure.code())) {
                 circuit.failure(selected);
             }
 
@@ -477,10 +477,11 @@ public class ModelCallClient {
 
         requireTokenBudget(identity, callId, g, tokenBudget, upper);
         var model = requireModel(identity,callId,g,ModelCapability.EMBEDDING);
-        boolean dispatched = false, succeeded = false;
+        boolean dispatched = false, succeeded = false, providerSucceeded=false;
         long started = System.nanoTime();
 
         try {
+            if(circuit!=null&&!circuit.acquire(model))throw new ModelCallException("CIRCUIT_OPEN",false,503);
             begin(identity, callId, model, "PRIMARY", g.generation(), upper);
             dispatched = true;
             JsonNode result =
@@ -548,6 +549,8 @@ public class ModelCallClient {
                                     model.credentialId(),
                                     dimensions));
 
+            providerSucceeded=true;
+            if(circuit!=null)circuit.success(model);
             save(
                     identity,
                     callId,
@@ -562,6 +565,7 @@ public class ModelCallClient {
 
             return batch;
         } catch (Exception error) {
+            if(dispatched&&!providerSucceeded&&circuit!=null)circuit.failure(model);
             throw unknown(identity, callId, "PRIMARY", error, g.generation(), dispatched);
         } finally {
             recordDuration(ModelCapability.EMBEDDING, "PRIMARY", succeeded, started);
@@ -598,10 +602,11 @@ public class ModelCallClient {
 
         requireTokenBudget(identity, callId, g, tokenBudget, upper);
         var model = requireModel(identity,callId,g,ModelCapability.RERANK);
-        boolean dispatched = false, succeeded = false;
+        boolean dispatched = false, succeeded = false, providerSucceeded=false;
         long started = System.nanoTime();
 
         try {
+            if(circuit!=null&&!circuit.acquire(model))throw new ModelCallException("CIRCUIT_OPEN",false,503);
             begin(identity, callId, model, "PRIMARY", g.generation(), upper);
             dispatched = true;
             JsonNode result =
@@ -648,6 +653,8 @@ public class ModelCallClient {
             ranked.sort(Comparator.comparingDouble(Ranked::score).reversed());
             var ranking = new Ranking(List.copyOf(ranked), input);
 
+            providerSucceeded=true;
+            if(circuit!=null)circuit.success(model);
             save(
                     identity,
                     callId,
@@ -662,6 +669,7 @@ public class ModelCallClient {
 
             return ranking;
         } catch (Exception error) {
+            if(dispatched&&!providerSucceeded&&circuit!=null)circuit.failure(model);
             throw unknown(identity, callId, "PRIMARY", error, g.generation(), dispatched);
         } finally {
             recordDuration(ModelCapability.RERANK, "PRIMARY", succeeded, started);

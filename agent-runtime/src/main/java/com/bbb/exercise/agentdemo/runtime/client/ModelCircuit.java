@@ -13,15 +13,27 @@ import java.util.List;
 public class ModelCircuit {
     private final ConcurrentHashMap<String, State> circuits = new ConcurrentHashMap<>();
     private final StringRedisTemplate redis;
+    private final int failureThreshold,windowSeconds,openSeconds,probeSeconds;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
+    private final java.time.Clock clock;
 
     public ModelCircuit() {
-        this.redis = null;
+        this(null,5,60,30,30,new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),java.time.Clock.systemUTC());
     }
 
     @Autowired
     public ModelCircuit(
-            org.springframework.beans.factory.ObjectProvider<StringRedisTemplate> redis) {
-        this.redis = redis.getIfAvailable();
+            org.springframework.beans.factory.ObjectProvider<StringRedisTemplate> redis,
+            @org.springframework.beans.factory.annotation.Value("${app.model.circuit.failure-threshold:5}") int threshold,
+            @org.springframework.beans.factory.annotation.Value("${app.model.circuit.window-seconds:60}") int window,
+            @org.springframework.beans.factory.annotation.Value("${app.model.circuit.open-seconds:30}") int open,
+            @org.springframework.beans.factory.annotation.Value("${app.model.circuit.probe-seconds:30}") int probe,
+            io.micrometer.core.instrument.MeterRegistry metrics) {
+        this(redis.getIfAvailable(),threshold,window,open,probe,metrics,java.time.Clock.systemUTC());
+    }
+    public ModelCircuit(StringRedisTemplate redis,int threshold,int window,int open,int probe,io.micrometer.core.instrument.MeterRegistry metrics,java.time.Clock clock) {
+        if(threshold<1||window<1||open<1||probe<1||window>86400||open>86400||probe>86400)throw new IllegalArgumentException("模型熔断配置无效");
+        this.redis=redis;this.failureThreshold=threshold;this.windowSeconds=window;this.openSeconds=open;this.probeSeconds=probe;this.metrics=metrics;this.clock=clock;
     }
 
     // 1. 模型熔断准入：根据当前模型身份和熔断状态决定是否允许发起尝试。
@@ -31,37 +43,39 @@ public class ModelCircuit {
                 Long permit =
                         redis.execute(
                                 new DefaultRedisScript<>(
-                                        "if redis.call('EXISTS',KEYS[1])==1 then return 0 end if redis.call('EXISTS',KEYS[2])==1 then if redis.call('SET',KEYS[3],'1','NX','EX',30) then return 1 else return 0 end end return 1",
+                                        "if redis.call('EXISTS',KEYS[1])==1 then return 0 end if redis.call('EXISTS',KEYS[2])==1 then if redis.call('SET',KEYS[3],'1','NX','EX',ARGV[1]) then return 1 else return 0 end end return 1",
                                         Long.class),
-                                redisKeys(model));
-                return permit != null && permit == 1;
+                                redisKeys(model),String.valueOf(probeSeconds));
+                return admission(permit != null && permit == 1);
             } catch (RuntimeException ignored) {
+                metrics.counter("ai.model.circuit.redis.errors").increment();
             }
         }
 
         var s = circuits.computeIfAbsent(key(model), k -> new State());
 
         synchronized (s) {
-            long now = System.currentTimeMillis();
+            long now = clock.millis();
 
             if (s.openUntil > now) {
-                return false;
+                return admission(false);
             }
 
             if (s.openUntil != 0) {
-                if (s.probe) {
-                    return false;
+                if (s.probeUntil > now) {
+                    return admission(false);
                 }
 
-                s.probe = true;
+                s.probeUntil = now + probeSeconds*1000L;
             }
 
-            return true;
+            return admission(true);
         }
     }
 
     // 2. 成功反馈：清理或恢复对应模型的熔断状态。
     public void success(AuthModelClient.SelectedModel model) {
+        metrics.counter("ai.model.circuit.results","outcome","success").increment();
         if (redis != null) {
             try {
                 redis.delete(redisKeys(model));
@@ -76,13 +90,14 @@ public class ModelCircuit {
             synchronized (s) {
                 s.failures.clear();
                 s.openUntil = 0;
-                s.probe = false;
+                s.probeUntil = 0;
             }
         }
     }
 
     // 3. 失败反馈：按可计入熔断的故障更新状态，减少持续请求不可用模型。
     public void failure(AuthModelClient.SelectedModel model) {
+        metrics.counter("ai.model.circuit.results","outcome","failure").increment();
         if (redis != null) {
             try {
                 var keys = new java.util.ArrayList<>(redisKeys(model));
@@ -90,9 +105,9 @@ public class ModelCircuit {
                 keys.add(redisKey(model) + ":failures");
                 redis.execute(
                         new DefaultRedisScript<>(
-                                "local n=redis.call('INCR',KEYS[4]); if n==1 then redis.call('EXPIRE',KEYS[4],60) end if n>=5 or redis.call('EXISTS',KEYS[3])==1 then redis.call('SET',KEYS[1],'1','EX',30);redis.call('SET',KEYS[2],'1','EX',90);redis.call('DEL',KEYS[3]); end return n",
+                                "local n=redis.call('INCR',KEYS[4]); if n==1 then redis.call('EXPIRE',KEYS[4],ARGV[1]) end if n>=tonumber(ARGV[2]) or redis.call('EXISTS',KEYS[3])==1 then redis.call('SET',KEYS[1],'1','EX',ARGV[3]);redis.call('SET',KEYS[2],'1','EX',ARGV[4]);redis.call('DEL',KEYS[3]); end return n",
                                 Long.class),
-                        keys);
+                        keys,String.valueOf(windowSeconds),String.valueOf(failureThreshold),String.valueOf(openSeconds),String.valueOf(openSeconds+Math.max(windowSeconds,probeSeconds)));
             } catch (RuntimeException ignored) {
             }
         }
@@ -100,19 +115,19 @@ public class ModelCircuit {
         var s = circuits.computeIfAbsent(key(model), k -> new State());
 
         synchronized (s) {
-            long now = System.currentTimeMillis();
+            long now = clock.millis();
 
-            while (!s.failures.isEmpty() && s.failures.peekFirst() < now - 60000) {
+            while (!s.failures.isEmpty() && s.failures.peekFirst() < now - windowSeconds*1000L) {
                 s.failures.removeFirst();
             }
 
             s.failures.addLast(now);
 
-            if (s.probe || s.failures.size() >= 5) {
-                s.openUntil = now + 30000;
+            if (s.probeUntil != 0 || s.failures.size() >= failureThreshold) {
+                s.openUntil = now + openSeconds*1000L;
             }
 
-            s.probe = false;
+            s.probeUntil = 0;
         }
     }
 
@@ -121,9 +136,10 @@ public class ModelCircuit {
     }
 
     public double openCount() {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         return circuits.values().stream().filter(s -> s.openUntil > now).count();
     }
+    private boolean admission(boolean allowed){metrics.counter("ai.model.circuit.admission","outcome",allowed?"admitted":"blocked").increment();return allowed;}
 
     private static String redisKey(AuthModelClient.SelectedModel model) {
         return "ai:circuit:"
@@ -149,6 +165,6 @@ public class ModelCircuit {
     private static final class State {
         final ArrayDeque<Long> failures = new ArrayDeque<>();
         long openUntil;
-        boolean probe;
+        long probeUntil;
     }
 }

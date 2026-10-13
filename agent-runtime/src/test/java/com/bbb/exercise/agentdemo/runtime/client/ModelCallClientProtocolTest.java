@@ -79,6 +79,19 @@ class ModelCallClientProtocolTest {
     void close() {
         provider.stop(0);
     }
+    @Test void disconnectAfterProviderAcceptsBodyMustNotTransparentlyReplayPaidPost() {
+        custom=exchange->exchange.close();
+        assertThatThrownBy(()->client.rerank(identity,"disconnect-once","question",List.of("evidence"))).isInstanceOf(ModelCallClient.ModelCallException.class);
+        assertThat(calls.get()).isEqualTo(1);
+        assertThat(billing.unknown).isEqualTo("PRIMARY");assertThat(billing.rejected).isNull();
+    }
+    @Test void openCircuitAlsoStopsEmbeddingBeforeProviderDispatchAndReleasesUnsentGroup() {
+        var circuit=new ModelCircuit();var model=models.resolve(identity,ModelCapability.EMBEDDING);
+        for(int n=0;n<5;n++)circuit.failure(model);
+        client=new ModelCallClient(models,billing,WebClient.builder(),circuit,15,20,60,30);
+        assertThatThrownBy(()->client.embed(identity,"embedding-circuit",List.of("text"),64)).isInstanceOf(ModelCallClient.ModelCallException.class);
+        assertThat(calls.get()).isZero();assertThat(billing.cancelled).isTrue();assertThat(billing.unknown).isNull();
+    }
 
     @Test void billingReceiptConnectionFailureMustNotBecomeAZeroUsageProviderRejection() {
         billing=new FakeBilling(){@Override public Mono<Void> receipt(ChatIdentity i,String id,AttemptReceipt r){return Mono.error(new java.net.ConnectException("billing unavailable"));}};

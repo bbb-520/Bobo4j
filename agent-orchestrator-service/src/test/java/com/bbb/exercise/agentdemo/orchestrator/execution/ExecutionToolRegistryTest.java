@@ -4,6 +4,12 @@ import org.junit.jupiter.api.Test;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 class ExecutionToolRegistryTest {
+    @Test void springWiresTheRegistryWithoutRequiringAnExtensionBean() {
+        try(var context=new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.register(ExecutionToolRegistry.class);context.refresh();
+            assertThat(context.getBean(ExecutionToolRegistry.class).names()).containsExactlyInAnyOrderElementsOf(AgentDecision.TOOLS);
+        }
+    }
     ExecutionToolRegistry.Scope scope(boolean image,String document) {return new ExecutionToolRegistry.Scope(new ChatIdentity("t","u",true),"conv",document,image,"stable-call","question",Set.of());}
     @Test void springAiCallbacksCannotBeInvokedWithoutTheTrustedExecutionLedger() {
         var tools=new ExecutionToolRegistry(List.of());
