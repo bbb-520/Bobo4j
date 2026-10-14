@@ -1,4 +1,4 @@
-import importlib.util,json,pathlib,tempfile,unittest,hashlib
+import importlib.util,json,pathlib,tempfile,unittest,hashlib,zipfile
 spec=importlib.util.spec_from_file_location('release_manifest',str(pathlib.Path(__file__).with_name('verify_manifest.py')))
 release=importlib.util.module_from_spec(spec)
 class ManifestTests(unittest.TestCase):
@@ -22,5 +22,17 @@ class ManifestTests(unittest.TestCase):
   with self.assertRaises(ValueError):release.verify(self.root,self.doc,'a'*40,'b'*40)
  def test_runtime_tag_without_immutable_identity_rejected(self):
   self.doc['frontend']['runtimeId']='node:latest'
+  with self.assertRaises(ValueError):release.verify(self.root,self.doc,'a'*40,'b'*40)
+ def test_migration_version_is_derived_from_packaged_sql_and_java(self):
+  jar=self.root/'versions.jar'
+  with zipfile.ZipFile(jar,'w') as archive:
+   archive.writestr('BOOT-INF/classes/db/migration/V5__chat.sql','SQL')
+   archive.writestr('BOOT-INF/classes/db/migration/V11__refund_attempts.class',b'JAVA')
+   archive.writestr('BOOT-INF/lib/unrelated-V99.jar',b'ignored')
+  self.assertEqual('11',release.migration_version(jar))
+ def test_wrong_declared_migration_version_is_rejected(self):
+  jar=self.root/'agent-chat-service/app.jar'
+  with zipfile.ZipFile(jar,'w') as archive:archive.writestr('BOOT-INF/classes/db/migration/V5__chat.sql','SQL')
+  self.doc['services']['agent-chat-service'].update(sha256=release.digest(jar),migrationVersion='4')
   with self.assertRaises(ValueError):release.verify(self.root,self.doc,'a'*40,'b'*40)
 if __name__=='__main__':unittest.main()
