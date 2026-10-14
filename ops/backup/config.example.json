@@ -1,0 +1,53 @@
+{
+  "key_file": "/etc/agentdemo-backup/archive.key",
+  "scratch_dir": "/var/lib/agentdemo-backup/staging",
+  "lock_file": "/run/lock/agentdemo-backup/backup.lock",
+  "status_dir": "/opt/agentdemo/backup",
+  "openssl": "/usr/bin/openssl",
+  "retention_days": 30,
+  "max_delete_per_run": 20,
+  "mysql": {
+    "dump_bin": "/usr/bin/mysqldump",
+    "defaults_file": "/etc/agentdemo-backup/mysql.cnf",
+    "databases": ["agentdemo", "nacos_config"]
+  },
+  "document_paths": [
+    {"name": "rag_documents", "path": "/REPLACE_WITH_ACTUAL_DOCUMENT_VOLUME"}
+  ],
+  "config_paths": [
+    {"name": "app_compose", "path": "/opt/agentdemo/docker-compose.app.yml"},
+    {"name": "infra_compose", "path": "/opt/agentdemo/infra/docker-compose.yml"},
+    {"name": "nginx", "path": "/etc/nginx/conf.d"},
+    {"name": "runtime_env", "path": "/opt/agentdemo/.env"},
+    {"name": "nacos_bootstrap", "path": "/REPLACE_WITH_ACTUAL_NACOS_CONF_DIRECTORY"}
+  ],
+  "pause_command": [],
+  "resume_command": [],
+  "vector_command": ["/opt/agentdemo/backup/milvus-helper.sh"],
+  "milvus": {
+    "uri": "http://127.0.0.1:19530",
+    "token": "REPLACE_OR_EMPTY_IF_AUTH_DISABLED",
+    "database": "default",
+    "collections": ["agent_rag_v2", "REPLACE_WITH_ENABLED_GALLERY_COLLECTION"],
+    "batch_size": 128,
+    "require_all_collections": true,
+    "allow_server_version_mismatch": false
+  },
+  "model_metadata": {
+    "rag_model": "REPLACE_EXACT_PROVIDER_MODEL_VERSION",
+    "rag_dimensions": 1024,
+    "rag_embedding_fingerprint": "REPLACE_ACTUAL_FINGERPRINT",
+    "gallery_embedding_space": "REPLACE_ACTUAL_CONFIGURED_IDENTITY",
+    "application_release": "REPLACE_RELEASE_COMMIT"
+  },
+  "restore_mysql_image": "mysql:8.0.36",
+  "restore_mysql_memory": "1g",
+  "oss": {
+    "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
+    "bucket": "REPLACE_EXISTING_BUCKET",
+    "prefix": "private/agentdemo-backup/",
+    "access_key_id": "REPLACE_BACKUP_SCOPED_ID",
+    "access_key_secret": "REPLACE_BACKUP_SCOPED_SECRET",
+    "security_token": ""
+  }
+}

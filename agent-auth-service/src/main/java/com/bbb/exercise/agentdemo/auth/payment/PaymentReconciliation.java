@@ -31,6 +31,7 @@ public class PaymentReconciliation {
         if (owner == null) return;
         String error = null;
         try {
+            if (orders.escalateExpiredUncertainty(order.id(),owner)) return;
             var trade = alipay.query(order);
             if(!"NOT_FOUND".equals(trade.status()) && !orders.observeQuery(order.id(),owner,trade.status(),trade.tradeId(),trade.amountCents(),trade.receiptCents(),trade.buyerPaidCents(),trade.invoiceCents(),trade.refundedCents(),properties.getAlipay().getAppId(),properties.getAlipay().getSellerId())) return;
             if("PAID".equals(order.status())&&!Set.of("TRADE_SUCCESS","TRADE_FINISHED").contains(trade.status()))

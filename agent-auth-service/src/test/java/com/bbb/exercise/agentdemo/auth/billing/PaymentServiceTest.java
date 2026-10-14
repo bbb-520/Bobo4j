@@ -31,10 +31,64 @@ class PaymentServiceTest {
         new ResourceDatabasePopulator(
                         new ClassPathResource("db/migration/V3__billing.sql"),
                         new ClassPathResource("db/migration/V6__free_tokens.sql"),
-                        new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"))
+                        new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"),new ClassPathResource("db/migration/V12__payment_manual_recovery.sql"))
                 .execute(ds);
         new BillingService(jdbc, tx, 10000, 200000, 1000000, 500000).createWallet("alice", 0);
         payments = new PaymentService(jdbc, tx);
+    }
+
+    @Test
+    void expiredUncertainOrdersStopAutomaticQueriesWithoutChangingFinancialTruth() {
+        var order=payments.create("alice","uncertain","ALIPAY",100);
+        jdbc.update("UPDATE payment_order SET expires_at=TIMESTAMPADD(HOUR,-25,CURRENT_TIMESTAMP),reconcile_state='ERROR' WHERE id=?",order.id());
+        String owner=payments.acquireSync(order.id());
+        payments.finishSync(order.id(),owner,"provider unavailable");
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("MANUAL");
+        assertThat(payments.find(order.id()).status()).isEqualTo("PENDING");
+        jdbc.update("UPDATE payment_order SET next_check_at=CURRENT_TIMESTAMP WHERE id=?",order.id());
+        assertThat(payments.dueOrders()).isEmpty();
+        assertThat(payments.acquireSync(order.id())).isNull();
+        assertThat(jdbc.queryForObject("SELECT balance_micros FROM billing_wallet WHERE user_id='alice'",Long.class)).isZero();
+        payments.credit(order.id(),"ALIPAY","verified-late",100,"CNY");
+        payments.credit(order.id(),"ALIPAY","verified-late",100,"CNY");
+        assertThat(payments.find(order.id()).status()).isEqualTo("PAID");
+        assertThat(jdbc.queryForObject("SELECT balance_micros FROM billing_wallet WHERE user_id='alice'",Long.class)).isEqualTo(1000000);
+    }
+
+    @Test
+    void manualResumeIsConcurrentIdempotentAuditedAndGrantsANewBoundedQueryWindow() throws Exception {
+        var order=payments.create("alice","resume","ALIPAY",100);
+        jdbc.update("UPDATE payment_order SET expires_at=TIMESTAMPADD(HOUR,-25,CURRENT_TIMESTAMP) WHERE id=?",order.id());
+        var lease=payments.acquireSync(order.id());payments.finishSync(order.id(),lease,"timeout");
+        try(var pool=Executors.newFixedThreadPool(4)) {
+            var tasks=new java.util.ArrayList<Future<?>>();
+            for(int i=0;i<4;i++)tasks.add(pool.submit(()->payments.resumeReconciliation(order.id(),"admin","渠道工单确认可继续查询")));
+            for(var task:tasks)task.get(20,TimeUnit.SECONDS);
+        }
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("UNVERIFIED");
+        assertThat(payments.dueOrders()).extracting(PaymentService.Order::id).containsExactly(order.id());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_reconciliation_audit WHERE action='RESUME'",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_reconciliation_audit WHERE action='MANUAL' AND reason='EXPIRED_PAYMENT_OUTCOME_UNKNOWN'",Integer.class)).isEqualTo(1);
+        lease=payments.acquireSync(order.id());payments.finishSync(order.id(),lease,"still uncertain");
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("ERROR");
+        jdbc.update("UPDATE payment_order SET reconcile_resumed_at=TIMESTAMPADD(HOUR,-25,CURRENT_TIMESTAMP),next_check_at=CURRENT_TIMESTAMP WHERE id=?",order.id());
+        lease=payments.acquireSync(order.id());payments.finishSync(order.id(),lease,"still uncertain");
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("MANUAL");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_reconciliation_audit WHERE action='MANUAL'",Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void uncertaintyUsesExpiryNotCreationAndRejectsStaleLease() {
+        org.springframework.test.util.ReflectionTestUtils.setField(payments,"expiredUncertaintySeconds",60);
+        var order=payments.create("alice","near-expiry","ALIPAY",100);
+        jdbc.update("UPDATE payment_order SET created_at=TIMESTAMPADD(DAY,-3,CURRENT_TIMESTAMP),expires_at=TIMESTAMPADD(SECOND,-30,CURRENT_TIMESTAMP) WHERE id=?",order.id());
+        var lease=payments.acquireSync(order.id());
+        assertThat(payments.escalateExpiredUncertainty(order.id(),lease)).isFalse();
+        jdbc.update("UPDATE payment_order SET expires_at=TIMESTAMPADD(SECOND,-61,CURRENT_TIMESTAMP) WHERE id=?",order.id());
+        assertThat(payments.escalateExpiredUncertainty(order.id(),"stale-owner")).isFalse();
+        assertThat(payments.escalateExpiredUncertainty(order.id(),lease)).isTrue();
+        payments.finishSync(order.id(),lease,"timeout");
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("MANUAL");
     }
 
     @Test

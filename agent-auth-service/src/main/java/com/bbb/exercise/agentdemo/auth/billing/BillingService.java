@@ -16,6 +16,18 @@ public class BillingService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final long rate, reserve, imagePrice, warning;
+    @Value("${app.billing.image-unknown-limit:3}")
+    private int imageUnknownLimit = 3;
+    @Value("${app.billing.image-unknown-window-seconds:900}")
+    private int imageUnknownWindowSeconds = 900;
+    @Value("${app.billing.image-unknown-exposure-prices:3}")
+    private int imageUnknownExposurePrices = 3;
+
+    @jakarta.annotation.PostConstruct
+    void validateImageGuard() {
+        if (imageUnknownLimit < 1 || imageUnknownWindowSeconds < 1 || imageUnknownExposurePrices < 1)
+            throw new IllegalArgumentException("图片未知结果防护配置必须为正数");
+    }
 
     public BillingService(
             JdbcTemplate jdbc,
@@ -131,6 +143,8 @@ public class BillingService {
                         throw new BillingException(402, "账户欠费，请充值");
                     }
 
+                    if ("IMAGE".equals(request.capability())) checkImageExpenseGuard(user);
+
                     // 2.1. 额度选择：旧免费图片优先，所有能力均可使用同一免费 Token 额度。
                     boolean trial = "IMAGE".equals(request.capability()) && w.freeImages() > 0;
                     boolean freeTokenCall = w.freeTokens() > 0;
@@ -167,6 +181,17 @@ public class BillingService {
 
                     return new Reservation(request.requestId(), trial, hold, "RESERVED");
                 });
+    }
+
+    /** The wallet lock serializes new admissions with uncertainty recovery, across all nodes. */
+    private void checkImageExpenseGuard(String user) {
+        var exposure = jdbc.queryForMap(
+                "SELECT COUNT(*) AS failures,COALESCE(SUM(u.image_price_micros),0) AS exposure FROM model_usage u JOIN usage_reconciliation r ON r.usage_id=u.id AND r.action='ABANDONED' WHERE u.user_id=? AND u.capability='IMAGE' AND u.status='ABANDONED' AND r.actor='SYSTEM' AND (r.reason LIKE 'IMAGE_PROVIDER_OUTCOME_UNKNOWN;%' OR r.reason LIKE 'IMAGE_EXECUTION_DEADLINE_EXCEEDED;%') AND r.created_at>=TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP)",
+                user, -imageUnknownWindowSeconds);
+        var budget = BigInteger.valueOf(imagePrice).multiply(BigInteger.valueOf(imageUnknownExposurePrices));
+        if (((Number) exposure.get("failures")).longValue() >= imageUnknownLimit
+                || new java.math.BigDecimal(exposure.get("exposure").toString()).toBigInteger().compareTo(budget) >= 0)
+            throw new BillingException(429, "图片服务结果暂不稳定，请稍后再试；文字和文档功能仍可使用");
     }
 
     // 2.2. 派发登记：记录请求已进入供应商调用阶段，后续异常需区分结果是否明确。

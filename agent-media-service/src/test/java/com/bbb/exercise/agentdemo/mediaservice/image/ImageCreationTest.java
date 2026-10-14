@@ -36,6 +36,9 @@ class ImageCreationTest {
         when(models.resolve(any(),eq(ModelCapability.IMAGE))).thenReturn(new AuthModelClient.SelectedModel(ModelProvider.QWEN,ModelCapability.IMAGE,"qwen-image-3.0-pro","test-key"));
         when(billing.wallet(any())).thenReturn(Mono.just(new Wallet(0,0,0,false,true,false,null,1000000)));
         var jobs=new ImageJobService(db,assets,new OssProperties(),mock(OssStorageService.class),mock(AuthCredentialClient.class),models,billing);
+        var admission=mock(ImageJobAdmission.class);
+        when(admission.admit(any(),any(),any())).thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(2)).get());
+        jobs.configureAdmission(admission);
         web=WebTestClient.bindToController(new ImageJobController(identities,jobs)).build();
     }
 
@@ -101,6 +104,10 @@ class ImageCreationTest {
 
     static final class MemoryJdbc extends JdbcTemplate {
         final Map<String,Map<String,Object>> rows=new LinkedHashMap<>();
+        @Override public <T> T queryForObject(String sql,Class<T> type) {
+            if(!sql.equals("SELECT CURRENT_TIMESTAMP(3)") || type!=LocalDateTime.class)throw new AssertionError(sql);
+            return type.cast(LocalDateTime.of(2026,10,14,2,0));
+        }
         @Override public int update(String sql,Object... args) {
             if(!sql.startsWith("INSERT INTO image_job"))throw new AssertionError(sql);
             String[] columns=sql.substring(sql.indexOf('(')+1,sql.indexOf(')')).split(",");

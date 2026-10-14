@@ -24,6 +24,7 @@ public class PaymentAuditService {
         var result=new LinkedHashMap<>(summary(orderId));
         result.put("ledger",db.queryForList("SELECT event_type,delta_micros,refund_id,actor,created_at FROM payment_ledger WHERE order_id=? ORDER BY created_at,event_key",orderId));
         result.put("observations",db.queryForList("SELECT source,provider_status,provider_trade_id,amount_cents,receipt_cents,buyer_paid_cents,invoice_cents,refunded_cents,app_id,seller_id,created_at FROM payment_observation WHERE order_id=? ORDER BY created_at DESC LIMIT 100",orderId));
+        result.put("reconciliation",db.queryForList("SELECT action,actor,reason,created_at FROM payment_reconciliation_audit WHERE order_id=? ORDER BY created_at DESC LIMIT 100",orderId));
         result.put("refund",db.queryForList("SELECT id,status,amount_cents,attempts,checks,last_error,resolved_by,resolution_reason,evidence_reference,created_at,completed_at FROM payment_refund WHERE order_id=?",orderId));
         return result;
     }
@@ -43,8 +44,10 @@ public class PaymentAuditService {
         String state=entries==0?"LEGACY_UNVERIFIED":net!=expected?"LEDGER_MISMATCH":difference==null?"INCOMPLETE":difference!=0?"PROVIDER_MISMATCH":"MATCHED";
         if("REFUND_REVIEW".equals(status)||"ERROR".equals(order.get("reconcile_state")))state="REVIEW";
         if("MANUAL".equals(order.get("reconcile_state"))&&entries>0&&net==expected)state="MANUAL_EVIDENCE";
+        else if("MANUAL".equals(order.get("reconcile_state")))state="REVIEW";
         var result=new LinkedHashMap<String,Object>();
         result.put("orderId",id);result.put("status",status);result.put("amountCents",amount);
+        result.put("reconcileState",order.get("reconcile_state"));result.put("reconcileResumedAt",order.get("reconcile_resumed_at"));
         result.put("providerTradeId",order.get("provider_trade_id"));result.put("providerStatus",order.get("provider_status"));
         result.put("receiptCents",receipt);result.put("buyerPaidCents",order.get("buyer_paid_cents"));result.put("invoiceCents",order.get("invoice_cents"));
         result.put("providerRefundedCents",refunded);result.put("providerNetCents",providerNet);

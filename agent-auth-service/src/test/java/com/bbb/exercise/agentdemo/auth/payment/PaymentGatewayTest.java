@@ -41,7 +41,7 @@ class PaymentGatewayTest {
         new ResourceDatabasePopulator(
                         new ClassPathResource("db/migration/V3__billing.sql"),
                         new ClassPathResource("db/migration/V6__free_tokens.sql"),
-                        new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"))
+                        new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"),new ClassPathResource("db/migration/V12__payment_manual_recovery.sql"))
                 .execute(ds);
         var tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
 
@@ -64,6 +64,24 @@ class PaymentGatewayTest {
         p.getAlipay().setSellerId("seller");
         p.getAlipay().setPublicKeyPath(pub.toString());
         gateway = new PaymentGateway(p, payments, new AlipayTradeGateway(p));
+    }
+
+    @Test
+    void lateVerifiedNotificationAfterManualReviewCreditsExactlyOnce() {
+        var order=payments.create("alice","manual-late","ALIPAY",123);
+        jdbc.update("UPDATE payment_order SET expires_at=TIMESTAMPADD(HOUR,-25,CURRENT_TIMESTAMP) WHERE id=?",order.id());
+        var owner=payments.acquireSync(order.id());payments.finishSync(order.id(),owner,"unavailable");
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("MANUAL");
+        var fields=new TreeMap<String,String>();
+        fields.put("app_id","ali-app");fields.put("seller_id","seller");fields.put("trade_status","TRADE_SUCCESS");
+        fields.put("trade_no","late-verified");fields.put("out_trade_no",order.id());fields.put("total_amount","1.23");fields.put("receipt_amount","1.23");
+        String content=fields.entrySet().stream().map(e->e.getKey()+"="+e.getValue()).collect(java.util.stream.Collectors.joining("&"));
+        fields.put("sign_type","RSA2");fields.put("sign",PaymentCrypto.sign(content,privateKey));
+        gateway.alipayNotify(fields);gateway.alipayNotify(fields);
+        assertThat(payments.find(order.id()).status()).isEqualTo("PAID");
+        assertThat(payments.find(order.id()).reconcileState()).isEqualTo("MANUAL");
+        assertThat(jdbc.queryForObject("SELECT balance_micros FROM billing_wallet",Long.class)).isEqualTo(1230000);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_ledger WHERE event_type='CREDIT'",Integer.class)).isEqualTo(1);
     }
 
     @Test

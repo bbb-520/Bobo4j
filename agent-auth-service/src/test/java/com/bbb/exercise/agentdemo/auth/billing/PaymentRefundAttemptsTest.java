@@ -14,7 +14,7 @@ class PaymentRefundAttemptsTest {
     @BeforeEach void setup() throws Exception {
         var ds=new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         db=new JdbcTemplate(ds);
-        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V3__billing.sql"),new ClassPathResource("db/migration/V6__free_tokens.sql"),new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql")).execute(ds);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V3__billing.sql"),new ClassPathResource("db/migration/V6__free_tokens.sql"),new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"),new ClassPathResource("db/migration/V12__payment_manual_recovery.sql")).execute(ds);
         try(var connection=ds.getConnection()){new db.migration.V11__refund_attempts().migrate(connection);}
         var tx=new TransactionTemplate(new DataSourceTransactionManager(ds));
         new BillingService(db,tx,10000,200000,1000000,500000).createWallet("alice",0);

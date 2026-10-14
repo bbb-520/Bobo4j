@@ -1,0 +1,19 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.qq.com:465'
+  smtp_from: 'set-from-private-configuration'
+  smtp_auth_username: 'set-from-private-configuration'
+  smtp_auth_password_file: /run/secrets/smtp-password
+  smtp_require_tls: true
+  smtp_force_implicit_tls: true
+route:
+  receiver: operator-email
+  group_by: [alertname, service, container]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: operator-email
+    email_configs:
+      - to: 'set-alert-recipient-at-deployment'
+        send_resolved: true

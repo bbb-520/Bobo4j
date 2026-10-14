@@ -52,7 +52,7 @@ class AlipayPaymentLoopTest {
         db = new JdbcTemplate(ds);
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V3__billing.sql"),
                 new ClassPathResource("db/migration/V6__free_tokens.sql"),
-                new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql")).execute(ds);
+                new ClassPathResource("db/migration/V8__payment_recovery.sql"),new ClassPathResource("db/migration/V9__alipay_stability.sql"),new ClassPathResource("db/migration/V12__payment_manual_recovery.sql")).execute(ds);
         var tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         try(var connection=ds.getConnection()){new db.migration.V11__refund_attempts().migrate(connection);}
         new BillingService(db, tx, 10000, 200000, 1000000, 500000).createWallet("alice", 0);
@@ -163,6 +163,29 @@ class AlipayPaymentLoopTest {
         orders.credit(order.id(), "ALIPAY", "ali-trade", 123, "CNY");
         assertThat(balance()).isEqualTo(1230000L);
         assertThat(requests).hasSize(1);
+    }
+
+    @Test void ancientUncertaintyStopsNetworkQueriesAndAdminResumeOnlySchedulesSafeQuery() {
+        var order=order();
+        db.update("UPDATE payment_order SET expires_at=TIMESTAMPADD(HOUR,-25,CURRENT_TIMESTAMP),reconcile_state='ERROR' WHERE id=?",order.id());
+        recovery.runOnce();recovery.runOnce();recovery.refresh("alice",order.id());
+        assertThat(orders.find(order.id()).status()).isEqualTo("PENDING");
+        assertThat(orders.find(order.id()).reconcileState()).isEqualTo("MANUAL");
+        assertThat(requests).isEmpty();
+        var auth=mock(AuthService.class);var identities=mock(AuthIdentityResolver.class);var rbac=mock(RbacService.class);
+        when(identities.resolveRequired(any())).thenReturn(Mono.just(new ChatIdentity("test","admin",true)));
+        when(auth.requireUserId(any())).thenReturn(1L);when(auth.publicUserId(any(ChatIdentity.class))).thenReturn("operator");
+        var client=WebTestClient.bindToController(new PaymentRecoveryAdminController(auth,identities,rbac,orders)).controllerAdvice(new AuthExceptionHandler()).build();
+        String path="/api/billing/admin/payment-orders/"+order.id();
+        client.get().uri(path).exchange().expectStatus().isOk().expectBody().jsonPath("$.reconcileState").isEqualTo("MANUAL");
+        for(int i=0;i<2;i++)client.post().uri(path+"/resume").contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("reason","渠道工单核对后恢复查询")).exchange().expectStatus().isOk();
+        assertThat(requests).isEmpty();
+        verify(rbac,times(3)).require(1L,"billing:reconcile");
+        reply=(method,body)->trade(body,"TRADE_SUCCESS","1.23");recovery.runOnce();
+        assertThat(orders.find(order.id()).status()).isEqualTo("PAID");assertThat(balance()).isEqualTo(1230000);
+        assertThat(requests).extracting(r->r.get("method")).containsExactly("alipay.trade.query");
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM payment_reconciliation_audit WHERE action='RESUME'",Integer.class)).isEqualTo(1);
     }
 
     @Test void forgedSignedResponseNeverCredits() {
