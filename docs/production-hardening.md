@@ -28,6 +28,8 @@ Build all applications from one source revision and record per-JAR SHA256, front
 
 Derive expected Flyway versions from the tested JAR's owned SQL/Java migrations with `ops/release/verify_manifest.py`; do not guess a version from an earlier release. Verify non-root write access to a fresh mode1777 `/tmp` in application images, because health endpoints alone do not exercise multipart/Tika temporary storage.
 
+The root-only `ops/release/cutover.sh` runner requires `BOBO_RELEASE_DIRECTORY` and a matching captured rollback baseline. It marks mutation before stopping services, verifies every old immutable image ID and readiness on rollback, and keeps maintenance enabled with `FAILED_MAINTENANCE` if any rollback step fails. Remove the switch only after a verified release/rollback or a drain-only deferral. Never infer success from an earlier status file.
+
 Stop old media workers before V6 migration; mixed versions would bypass the new admission guard. V6 removes the implicit one-job-per-owner generated unique index and installs explicit bounded admission. Do not restore an old media binary into an unrestricted active queue. Before traffic resumes, rollback can re-establish its original generated index only if there is at most one pending job per owner. Auth V12 is additive and leaves existing financial audit/late callbacks intact. Never restore a whole SQL dump over newly accepted transactions as routine rollback.
 
 Validate real MySQL migrations and concurrent admission separately from H2 tests. The local MySQL test creates random disposable schemas and refuses remote URLs. With an isolated MySQL instance:
