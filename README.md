@@ -403,3 +403,7 @@ mvn -pl agent-architecture-tests -am -Dmaven.compiler.fork=true test
 本次增加可审计退款重试、任务模型快照传递、账户隔离的会话同步和源图预览恢复；工具改为受控Spring AI回调注册，视觉记忆使用真实embedding，并接线可验证的路由限流和模型熔断。行为、配置、迁移及验证边界见 [可靠性改造说明](docs/reliability-upgrade.md)。
 
 新增GPT-Image2-Skill提示词画廊解析、独立Milvus向量库、分类过滤和ChatClient改写示例，默认关闭；导入与模型调用限管理员承担平台成本。配置、固定来源、完整运行命令和模糊搜索示例见 [提示词画廊说明](docs/prompt-gallery.md)。未配置模型凭据时不进行真实embedding导入，本次源码改动未直接部署到线上。
+
+## 2026-10-14 图片失败与账户恢复
+
+修复 DashScope 生图旧连接复用，以及图片失败后长期阻止聊天的问题；无回执失败保留平台费用审计并释放账户占用，已有回执恢复交付，前端补充余额刷新兜底。计费边界、排查方式与验证命令见 [图片连接失败与账户恢复](docs/image-generation-recovery.md)。

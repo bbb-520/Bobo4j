@@ -175,6 +175,16 @@ public class ImageJobWorker {
                     job.id(),
                     error.getClass().getSimpleName());
 
+            if (receipt == null && dispatched) {
+                try {
+                    // The result write may have committed even if its acknowledgement was lost.
+                    receipt = jobs.receipt(identity, job.id());
+                } catch (Exception unavailable) {
+                    jobs.defer(job.id(), owner);
+                    return;
+                }
+            }
+
             if (receipt != null) {
                 if (error instanceof org.springframework.web.server.ResponseStatusException response
                         && response.getStatusCode().is4xxClientError()) {
@@ -186,14 +196,19 @@ public class ImageJobWorker {
                 return;
             }
 
+            boolean released = false;
             try {
-                // 1.6. 无明确回执的异常：登记消费待核对，避免把未知派发结果当成免费失败。
+                // Unknown image costs are audited at platform expense, not held against future chat.
                 billing.unknown(identity, job.id()).block(Duration.ofSeconds(6));
+                var state = billing.status(identity, job.id()).block(Duration.ofSeconds(6));
+                released = state != null && ("ABANDONED".equals(state.status()) || "CANCELLED".equals(state.status()));
             } catch (Exception ignored) {
             }
 
             jobs.fail(
-                    job.id(), owner, dispatched ? "供应商结果不明确，消费待对账" : "余额不足、账户忙碌或模型配置失效，请查看消费记录", 1);
+                    job.id(), owner, dispatched
+                            ? released ? "图片服务连接或响应异常，本次任务已结束，账户占用已释放，可重新提交" : "图片服务响应异常，账户占用正在恢复，请稍后重试"
+                            : "余额不足、账户忙碌或模型配置失效，请查看消费记录", 1);
         } finally {
             heartbeat.shutdownNow();
         }

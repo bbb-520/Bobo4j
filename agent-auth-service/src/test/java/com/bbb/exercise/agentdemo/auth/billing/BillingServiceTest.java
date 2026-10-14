@@ -64,7 +64,8 @@ class BillingServiceTest {
     @Test
     void staleImageCreationCannotPermanentlyLockChatOrChargeANewerRequest() {
         billing.reserve("alice",new Reserve("lost-image","IMAGE","qwen-image"));billing.dispatch("alice","lost-image");
-        billing.unknown("alice","lost-image");billing.expireReservations();
+        // Simulate process death without a worker reporting the terminal failure.
+        billing.expireReservations();
         assertThat(billing.wallet("alice").activeUsageId()).isEqualTo("lost-image");
         jdbc.update("UPDATE model_usage SET updated_at=TIMESTAMPADD(MINUTE,-20,CURRENT_TIMESTAMP) WHERE id='lost-image'");
         billing.expireReservations();billing.expireReservations();
@@ -77,6 +78,21 @@ class BillingServiceTest {
         assertThat(billing.wallet("alice").activeUsageId()).isEqualTo("new-image");
         assertThat(billing.wallet("alice").balanceMicros()).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM usage_reconciliation WHERE action='ABANDONED'",Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void reportedUnknownImageRestoresLegacyTrialExactlyOnceWithoutReleasingANewerCall() {
+        billing.reserve("alice", new Reserve("ended-image", "IMAGE", "qwen-image"));
+        billing.dispatch("alice", "ended-image");
+        assertThat(billing.wallet("alice").freeImages()).isEqualTo(1);
+        billing.unknown("alice", "ended-image");
+        billing.unknown("alice", "ended-image");
+        assertThat(billing.wallet("alice").freeImages()).isEqualTo(2);
+        assertThat(billing.wallet("alice").blocked()).isFalse();
+        billing.reserve("alice", new Reserve("next-image", "IMAGE", "qwen-image"));
+        billing.unknown("alice", "ended-image");
+        assertThat(billing.wallet("alice").activeUsageId()).isEqualTo("next-image");
+        assertThat(billing.wallet("alice").freeImages()).isEqualTo(1);
     }
 
     @Test

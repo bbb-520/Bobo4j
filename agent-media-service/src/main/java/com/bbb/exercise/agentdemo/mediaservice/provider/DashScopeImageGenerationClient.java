@@ -23,7 +23,12 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
     private final ZineProperties properties;
 
     public DashScopeImageGenerationClient(ZineProperties properties) {
-        HttpClient httpClient = HttpClient.create().responseTimeout(properties.getTimeout());
+        // Paid generation POSTs must not reuse connections expired by the provider.
+        // Never transparently replay a request whose outcome may already be billable.
+        HttpClient httpClient = HttpClient.newConnection()
+                .disableRetry(true)
+                .option(io.netty.channel.ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
+                .responseTimeout(properties.getTimeout());
 
         this.webClient =
                 WebClient.builder()
@@ -99,7 +104,7 @@ public class DashScopeImageGenerationClient implements ZineImageGenerationClient
                 .bodyToMono(JsonNode.class)
                 .map(this::parseResult)
                 .doOnError(
-                        error -> log.warn("[zine] image provider failed: {}", error.getMessage()));
+                        error -> log.warn("[zine] image provider failed errorType={}", error.getClass().getSimpleName()));
     }
 
     private ZineImageResult parseResult(JsonNode root) {

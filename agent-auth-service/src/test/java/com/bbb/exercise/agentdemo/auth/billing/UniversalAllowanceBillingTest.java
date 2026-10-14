@@ -188,30 +188,37 @@ class UniversalAllowanceBillingTest {
     }
 
     @Test
-    void unknownImageRetainsWalletLockUntilConfirmedAndCanBeSettledWithConversion() {
+    void failedImageReleasesAccountImmediatelyAndRetainsUnknownExposureWithoutInventingUsage() {
         dispatchImage("unknown");
         billing.unknown("alice", "unknown");
+        billing.unknown("alice", "unknown");
         assertThat(billing.wallet("alice").freeTokens()).isEqualTo(1_000_000);
-        assertThat(billing.wallet("alice").blocked()).isTrue();
-        assertThatThrownBy(() -> billing.reserve("alice", new Reserve("next", "CHAT", "chat-model")))
-                .isInstanceOf(BillingException.class);
+        assertThat(billing.wallet("alice").blocked()).isFalse();
+        assertThat(billing.status("alice", "unknown")).isEqualTo("ABANDONED");
+        assertThatCode(() -> billing.reserve("alice", new Reserve("next", "CHAT", "chat-model")))
+                .doesNotThrowAnyException();
         assertThatThrownBy(() -> billing.cancel("alice", "unknown"))
                 .isInstanceOf(BillingException.class);
-
-        billing.reconcileSettle("alice", "unknown", new Settlement(null, null, "provider-reconciled"),
-                "operator", "provider confirmed image");
-        assertThat(billing.wallet("alice").freeTokens()).isEqualTo(900_000);
-        assertThat(billing.wallet("alice").blocked()).isFalse();
+        assertThatThrownBy(() -> billing.settle("alice", "unknown", new Settlement(null, null, "late")))
+                .isInstanceOf(BillingException.class);
+        billing.unknown("alice", "unknown");
+        assertThat(billing.wallet("alice").activeUsageId()).isEqualTo("next");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM usage_reconciliation WHERE usage_id='unknown' AND action='ABANDONED'", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT reason FROM usage_reconciliation WHERE usage_id='unknown'", String.class)).contains("platform_estimated_exposure_micros=1000000");
+        assertThat(jdbc.queryForObject("SELECT input_tokens FROM model_usage WHERE id='unknown'", Long.class)).isNull();
     }
 
     @Test
-    void refundOfUnknownImageDoesNotMintAllowanceOrLegacyImageTrials() {
+    void abandoningUnknownCashImageReleasesHoldOnlyOnceWithoutMintingCredit() {
+        jdbc.update("UPDATE billing_wallet SET free_tokens=0,balance_micros=2000000 WHERE user_id='alice'");
         dispatchImage("unknown-refund");
+        assertThat(billing.wallet("alice").reservedMicros()).isEqualTo(1000000);
         billing.unknown("alice", "unknown-refund");
-        billing.reconcileRefund("alice", "unknown-refund", "operator", "provider confirms no charge");
-        billing.reconcileRefund("alice", "unknown-refund", "operator", "provider confirms no charge");
+        billing.unknown("alice", "unknown-refund");
 
-        assertThat(billing.wallet("alice").freeTokens()).isEqualTo(1_000_000);
+        assertThat(billing.wallet("alice").freeTokens()).isZero();
+        assertThat(billing.wallet("alice").balanceMicros()).isEqualTo(2000000);
+        assertThat(billing.wallet("alice").reservedMicros()).isZero();
         assertThat(billing.wallet("alice").freeImages()).isZero();
         assertThat(billing.wallet("alice").activeUsageId()).isNull();
     }
