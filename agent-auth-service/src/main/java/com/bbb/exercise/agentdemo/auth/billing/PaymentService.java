@@ -12,6 +12,13 @@ import java.util.UUID;
 public class PaymentService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
+    @org.springframework.beans.factory.annotation.Value("${app.payments.expired-uncertainty-seconds:86400}")
+    private int expiredUncertaintySeconds = 86400;
+
+    @jakarta.annotation.PostConstruct
+    void validateRecoveryConfiguration() {
+        if (expiredUncertaintySeconds < 1) throw new IllegalArgumentException("支付不确定期限必须为正数");
+    }
 
     public PaymentService(JdbcTemplate jdbc, TransactionTemplate tx) {
         this.jdbc = jdbc;
@@ -195,13 +202,13 @@ public class PaymentService {
     }
 
     public java.util.List<Order> dueOrders() {
-        return jdbc.query("SELECT * FROM payment_order WHERE channel='ALIPAY' AND status IN ('PENDING','PAID') AND next_check_at<=CURRENT_TIMESTAMP ORDER BY next_check_at LIMIT 20",
+        return jdbc.query("SELECT * FROM payment_order WHERE channel='ALIPAY' AND status IN ('PENDING','PAID') AND reconcile_state<>'MANUAL' AND next_check_at<=CURRENT_TIMESTAMP ORDER BY next_check_at LIMIT 20",
                 (rs,n) -> map(rs));
     }
 
     public String acquireSync(String id) {
         String owner = UUID.randomUUID().toString();
-        int changed = jdbc.update("UPDATE payment_order SET sync_owner=?,sync_until=TIMESTAMPADD(SECOND,60,CURRENT_TIMESTAMP) WHERE id=? AND status IN ('PENDING','PAID') AND next_check_at<=CURRENT_TIMESTAMP AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP) AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP)", owner,id);
+        int changed = jdbc.update("UPDATE payment_order SET sync_owner=?,sync_until=TIMESTAMPADD(SECOND,60,CURRENT_TIMESTAMP) WHERE id=? AND status IN ('PENDING','PAID') AND reconcile_state<>'MANUAL' AND next_check_at<=CURRENT_TIMESTAMP AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP) AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP)", owner,id);
         return changed == 1 ? owner : null;
     }
 
@@ -214,7 +221,41 @@ public class PaymentService {
     }
 
     public void finishSync(String id, String owner, String error) {
-        jdbc.update("UPDATE payment_order SET sync_owner=NULL,sync_until=NULL,next_check_at=TIMESTAMPADD(SECOND,CASE WHEN status='PAID' THEN 86400 WHEN expires_at<CURRENT_TIMESTAMP THEN 300 ELSE 10 END,CURRENT_TIMESTAMP),last_checked_at=CURRENT_TIMESTAMP,last_error=?,reconcile_state=CASE WHEN ? IS NOT NULL THEN 'ERROR' ELSE reconcile_state END WHERE id=? AND sync_owner=?", error,error,id,owner);
+        tx.executeWithoutResult(s -> {
+            escalateExpiredUncertainty(id,owner);
+            jdbc.update("UPDATE payment_order SET sync_owner=NULL,sync_until=NULL,next_check_at=TIMESTAMPADD(SECOND,CASE WHEN status='PAID' THEN 86400 WHEN expires_at<CURRENT_TIMESTAMP THEN 300 ELSE 10 END,CURRENT_TIMESTAMP),last_checked_at=CURRENT_TIMESTAMP,last_error=CASE WHEN reconcile_state='MANUAL' THEN last_error ELSE ? END,reconcile_state=CASE WHEN reconcile_state='MANUAL' THEN 'MANUAL' WHEN ? IS NOT NULL THEN 'ERROR' ELSE reconcile_state END WHERE id=? AND sync_owner=?", error,error,id,owner);
+        });
+    }
+
+    /** Escalation records uncertainty only; no financial status, prepay or refund is replayed. */
+    public boolean escalateExpiredUncertainty(String id, String owner) {
+        return Boolean.TRUE.equals(tx.execute(s -> {
+            var rows=jdbc.queryForList("SELECT id FROM payment_order WHERE id=? FOR UPDATE",id);
+            if(rows.isEmpty()) return false;
+            int changed=jdbc.update("UPDATE payment_order SET reconcile_state='MANUAL',state_version=state_version+1 WHERE id=? AND status='PENDING' AND reconcile_state<>'MANUAL' AND sync_owner=? AND sync_until>CURRENT_TIMESTAMP AND GREATEST(expires_at,COALESCE(reconcile_resumed_at,expires_at))<=TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP)",id,owner,-expiredUncertaintySeconds);
+            if(changed==1) reconciliationAudit(id,"MANUAL","SYSTEM","EXPIRED_PAYMENT_OUTCOME_UNKNOWN");
+            return changed==1;
+        }));
+    }
+
+    /** A repeated resume is a no-op; the row lock serializes resume against notifications and sync. */
+    public Order resumeReconciliation(String id,String actor,String reason) {
+        if(actor==null||actor.isBlank()||actor.length()>64||reason==null||reason.isBlank()||reason.length()>500)
+            throw new BillingException(400,"必须填写支付核对恢复原因（最多500字）");
+        return tx.execute(s -> {
+            var rows=jdbc.queryForList("SELECT id FROM payment_order WHERE id=? FOR UPDATE",id);
+            if(rows.isEmpty())throw new BillingException(404,"订单不存在");
+            if(jdbc.queryForObject("SELECT COUNT(*) FROM payment_order WHERE id=? AND reconcile_state='MANUAL'",Integer.class,id)==0) return find(id);
+            if(jdbc.queryForObject("SELECT COUNT(*) FROM payment_order WHERE id=? AND status IN ('PENDING','PAID') AND (sync_until IS NULL OR sync_until<CURRENT_TIMESTAMP) AND (prepay_until IS NULL OR prepay_until<CURRENT_TIMESTAMP)",Integer.class,id)!=1)
+                throw new BillingException(409,"订单状态已变化或仍在处理中，请稍后核对");
+            jdbc.update("UPDATE payment_order SET reconcile_state='UNVERIFIED',reconcile_resumed_at=CURRENT_TIMESTAMP,next_check_at=CURRENT_TIMESTAMP,sync_owner=NULL,sync_until=NULL,state_version=state_version+1 WHERE id=?",id);
+            reconciliationAudit(id,"RESUME",actor,reason);
+            return find(id);
+        });
+    }
+
+    private void reconciliationAudit(String id,String action,String actor,String reason) {
+        jdbc.update("INSERT INTO payment_reconciliation_audit(id,order_id,action,actor,reason) VALUES(?,?,?,?,?)",UUID.randomUUID().toString(),id,action,actor,reason);
     }
 
     public void observe(String id,String source,String state,String trade,long amount,Long receipt,Long buyer,Long invoice,Long refunded,String app,String seller) {

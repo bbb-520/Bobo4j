@@ -15,6 +15,12 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.RejectedExecutionException;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 /** Leased worker; durable provider receipts allow copying/settling after crashes without generating twice. */
 @Slf4j
@@ -39,8 +45,45 @@ public class ImageJobWorker {
     @Value("${app.image-jobs.lease-duration:5m}")
     private Duration leaseDuration;
 
-    // 1. 图片执行流程：领取租约后，优先恢复供应商回执，再复制结果并结算。
+    @Value("${app.image-jobs.parallelism:2}")
+    private int parallelism = 2;
+
+    private Semaphore slots;
+    private ThreadPoolExecutor executor;
+
+    @PostConstruct
+    void start() {
+        if (parallelism < 1 || parallelism > 20) {
+            throw new IllegalArgumentException("image worker parallelism must be between 1 and 20");
+        }
+        slots = new Semaphore(parallelism);
+        executor = new ThreadPoolExecutor(parallelism, parallelism, 0, TimeUnit.MILLISECONDS,
+                new SynchronousQueue<>(), Thread.ofPlatform().daemon(true).name("image-worker-", 0).factory());
+    }
+
+    @PreDestroy
+    void stop() {
+        if (executor != null) executor.shutdownNow();
+    }
+
+    /** The scheduler only offers immediately available slots; no claimed jobs wait in memory. */
     @Scheduled(fixedDelayString = "${app.image-jobs.poll-interval:3000ms}", initialDelay = 5000)
+    public void schedule() {
+        for (int i = 0; i < parallelism && !executor.isShutdown() && slots.tryAcquire(); i++) {
+            try {
+                executor.execute(() -> {
+                    try { poll(); }
+                    catch (Exception error) { log.warn("[image-job] poll failed errorType={}", error.getClass().getSimpleName()); }
+                    finally { slots.release(); }
+                });
+            } catch (RejectedExecutionException busy) {
+                slots.release();
+                return;
+            }
+        }
+    }
+
+    // 1. 图片执行流程：领取租约后，优先恢复供应商回执，再复制结果并结算。
     public void poll() {
         // 1.1. 存储准入：OSS 未就绪时不领取任务，避免占用无法交付结果的作业。
         if (!storage.isConfigured()) {
@@ -112,6 +155,7 @@ public class ImageJobWorker {
                     billing.reserve(identity, job.id(), "IMAGE", job.model())
                             .block(Duration.ofSeconds(6));
                 } catch (Exception admission) {
+                    if (rateLimited(admission)) throw admission;
                     var state = billing.status(identity, job.id()).block(Duration.ofSeconds(6));
 
                     if (state != null
@@ -175,6 +219,16 @@ public class ImageJobWorker {
                     job.id(),
                     error.getClass().getSimpleName());
 
+            if (receipt == null && dispatched) {
+                try {
+                    // The result write may have committed even if its acknowledgement was lost.
+                    receipt = jobs.receipt(identity, job.id());
+                } catch (Exception unavailable) {
+                    jobs.defer(job.id(), owner);
+                    return;
+                }
+            }
+
             if (receipt != null) {
                 if (error instanceof org.springframework.web.server.ResponseStatusException response
                         && response.getStatusCode().is4xxClientError()) {
@@ -186,17 +240,35 @@ public class ImageJobWorker {
                 return;
             }
 
+            if (!dispatched && rateLimited(error)) {
+                jobs.failWithoutReceipt(job.id(), owner, "图片服务暂时繁忙，请稍后再试；本次未调用图片模型", 1);
+                return;
+            }
+
+            boolean released = false;
             try {
-                // 1.6. 无明确回执的异常：登记消费待核对，避免把未知派发结果当成免费失败。
+                // Unknown image costs are audited at platform expense, not held against future chat.
                 billing.unknown(identity, job.id()).block(Duration.ofSeconds(6));
+                var state = billing.status(identity, job.id()).block(Duration.ofSeconds(6));
+                released = state != null && ("ABANDONED".equals(state.status()) || "CANCELLED".equals(state.status()));
             } catch (Exception ignored) {
             }
 
-            jobs.fail(
-                    job.id(), owner, dispatched ? "供应商结果不明确，消费待对账" : "余额不足、账户忙碌或模型配置失效，请查看消费记录", 1);
+            jobs.failWithoutReceipt(
+                    job.id(), owner, dispatched
+                            ? released ? "图片服务连接或响应异常，本次任务已结束，账户占用已释放，可重新提交" : "图片服务响应异常，账户占用正在恢复，请稍后重试"
+                            : "余额不足、账户忙碌或模型配置失效，请查看消费记录", 1);
         } finally {
             heartbeat.shutdownNow();
         }
+    }
+
+    private static boolean rateLimited(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.springframework.web.server.ResponseStatusException response
+                    && response.getStatusCode().value() == 429) return true;
+        }
+        return false;
     }
 
     // 2. 模型快照约束：已创建任务不得静默切换到不同供应商。

@@ -64,6 +64,9 @@ app:
     max-attempts: ${IMAGE_JOBS_MAX_ATTEMPTS:2}
     lease-duration: ${IMAGE_JOBS_LEASE_DURATION:5m}
     worker-id: ${IMAGE_WORKER_ID:media-worker}
+    parallelism: ${IMAGE_JOBS_PARALLELISM:2}
+    per-user-pending-limit: ${IMAGE_JOBS_PER_USER_PENDING_LIMIT:2}
+    global-pending-limit: ${IMAGE_JOBS_GLOBAL_PENDING_LIMIT:20}
   zine:
     enabled: ${ZINE_ENABLED:true}
     base-url: ${ZINE_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}

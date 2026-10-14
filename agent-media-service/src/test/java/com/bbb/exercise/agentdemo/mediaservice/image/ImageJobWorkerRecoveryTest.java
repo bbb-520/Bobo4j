@@ -97,6 +97,26 @@ class ImageJobWorkerRecoveryTest {
     }
 
     @Test
+    void durableReceiptIsRecoveredBeforeDeclaringAnUncertainProviderFailure() {
+        var worker = worker();
+        when(models.resolve(any(), eq(ModelCapability.IMAGE)))
+                .thenReturn(new AuthModelClient.SelectedModel(ModelProvider.QWEN, ModelCapability.IMAGE, "qwen-image", "key"));
+        when(billing.reserve(any(), eq("job"), eq("IMAGE"), anyString()))
+                .thenReturn(Mono.just(new Reservation("job", false, 0, "RESERVED")));
+        when(billing.dispatch(any(), eq("job"))).thenReturn(Mono.empty());
+        var provider = mock(ImageGenerationProvider.class);
+        when(providers.resolve(ModelProvider.QWEN)).thenReturn(provider);
+        when(provider.generate(any())).thenReturn(Mono.error(new IllegalStateException("response lost")));
+        when(jobs.receipt(any(), eq("job"))).thenReturn(null,
+                new ImageJobService.Receipt("https://image", null, null, "rationale", "provider-id"));
+        worker.poll();
+        verify(jobs).defer(eq("job"), anyString());
+        verify(jobs, never()).fail(anyString(), anyString(), anyString(), anyInt());
+        verify(billing, never()).unknown(any(), anyString());
+        verify(provider, times(1)).generate(any());
+    }
+
+    @Test
     void leaseSuccessorWaitsForDispatchedCallInsteadOfFailingOrGeneratingAgain() {
         var worker = worker();
 

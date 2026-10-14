@@ -40,6 +40,14 @@ public class ImageJobService {
     private final AuthModelClient modelProfiles;
     private final com.bbb.exercise.agentdemo.runtime.client.BillingClient billing;
 
+    private ImageJobAdmission admission;
+
+    // Keep the established constructor contract; Spring requires this database guard as well.
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureAdmission(ImageJobAdmission admission) {
+        this.admission = admission;
+    }
+
     // 1. 图片任务创建：固定来源资产、供应商、型号和输出位置，保留生成参数快照。
     public JobView create(
             ChatIdentity identity,
@@ -115,7 +123,7 @@ public class ImageJobService {
 
         String jobId = UUID.randomUUID().toString();
         String ownerPart = hash(identity.tenantId() + "\0" + identity.userId()).substring(0, 24);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = databaseNow();
         String outputKey =
                 ossProperties.getOutputPrefix()
                         + "/"
@@ -127,41 +135,48 @@ public class ImageJobService {
                         + ".png";
         String mode = source == null ? "text-to-image" : inferMode(prompt);
 
-        try {
-            jdbc.update(
-                    "INSERT INTO image_job(id,tenant_id,user_id,conversation_id,source_asset_id,source_object_key,output_object_key,mode,language,prompt,provider,model,client_request_id,request_fingerprint,status,created_at,updated_at,expires_at) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'QUEUED',?,?,?)",
-                    jobId,
-                    identity.tenantId(),
-                    identity.userId(),
-                    conversationId,
-                    source == null ? null : source.id(),
-                    source == null ? null : source.objectKey(),
-                    outputKey,
-                    mode,
-                    "chinese",
-                    prompt,
-                    provider.name(),
-                    model,
-                    requestId,
-                    requestId == null ? null : fingerprint,
-                    now,
-                    now,
-                    now.plusDays(30));
-        } catch (org.springframework.dao.DuplicateKeyException e) {
+        ImageAssetService.AssetRecord sourceSnapshot = source;
+        String promptSnapshot = prompt;
+        return admission.admit(identity, () -> {
             StoredRequest winner = findRequest(identity, requestId);
-            if (winner != null) return replay(identity, winner, fingerprint);
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "已有图片任务处理中，请等待完成");
-        }
+            return winner == null ? null : replay(identity, winner, fingerprint);
+        }, () -> {
+            try {
+                jdbc.update(
+                        "INSERT INTO image_job(id,tenant_id,user_id,conversation_id,source_asset_id,source_object_key,output_object_key,mode,language,prompt,provider,model,client_request_id,request_fingerprint,status,created_at,updated_at,expires_at) "
+                                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'QUEUED',?,?,?)",
+                        jobId,
+                        identity.tenantId(),
+                        identity.userId(),
+                        conversationId,
+                        sourceSnapshot == null ? null : sourceSnapshot.id(),
+                        sourceSnapshot == null ? null : sourceSnapshot.objectKey(),
+                        outputKey,
+                        mode,
+                        "chinese",
+                        promptSnapshot,
+                        provider.name(),
+                        model,
+                        requestId,
+                        requestId == null ? null : fingerprint,
+                        now,
+                        now,
+                        now.plusDays(30));
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                StoredRequest winner = findRequest(identity, requestId);
+                if (winner != null) return replay(identity, winner, fingerprint);
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "已有图片任务处理中，请等待完成");
+            }
 
-        log.info(
-                "[image-job] task_received jobId={} conversationId={} receivedAt={} mode={}",
-                jobId,
-                conversationId,
-                now,
-                mode);
+            log.info(
+                    "[image-job] task_received jobId={} conversationId={} receivedAt={} mode={}",
+                    jobId,
+                    conversationId,
+                    now,
+                    mode);
 
-        return view(identity, jobId);
+            return view(identity, jobId);
+        });
     }
 
     public JobView getByRequest(ChatIdentity identity, String requestId) {
@@ -203,13 +218,26 @@ public class ImageJobService {
 
     private record StoredRequest(String id, String fingerprint) {}
 
+    /** Persist wall-clock DATETIME values using the same clock as SQL lease/expiry predicates. */
+    private LocalDateTime databaseNow() {
+        return jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(3)", LocalDateTime.class);
+    }
+
     // 2. 任务领取：条件更新领取排队或租约过期任务，减少并发重复处理。
     public JobRecord claimNext(String workerId, Duration leaseDuration) {
+        return admission.locked(() -> claimLocked(workerId, leaseDuration));
+    }
+
+    private JobRecord claimLocked(String workerId, Duration leaseDuration) {
         jdbc.update(
-                "UPDATE image_job SET status='FAILED',error_message='任务已过期',completed_at=NOW(3),updated_at=NOW(3) WHERE status='QUEUED' AND expires_at<=NOW(3)");
+                "UPDATE image_job SET status='FAILED',error_message='任务已过期',completed_at=NOW(3),updated_at=NOW(3),lease_owner=NULL,lease_until=NULL "
+                        + "WHERE expires_at<=NOW(3) AND result_ready=FALSE AND (status='QUEUED' OR (status='PROCESSING' AND (lease_owner IS NULL OR lease_owner='' OR lease_until IS NULL OR lease_until<=NOW(3))))");
         List<JobRecord> jobs =
                 jdbc.query(
-                        "SELECT * FROM image_job WHERE (status='QUEUED' OR (status='PROCESSING' AND lease_until<NOW(3))) AND (next_retry_at IS NULL OR next_retry_at<=NOW(3)) AND expires_at>NOW(3) ORDER BY created_at LIMIT 1",
+                        "SELECT j.* FROM image_job j WHERE (j.status='QUEUED' OR (j.status='PROCESSING' AND (j.lease_owner IS NULL OR j.lease_owner='' OR j.lease_until IS NULL OR j.lease_until<=NOW(3)))) "
+                                + "AND (j.next_retry_at IS NULL OR j.next_retry_at<=NOW(3)) AND (j.expires_at>NOW(3) OR j.result_ready=TRUE) "
+                                + "AND NOT EXISTS (SELECT 1 FROM image_job active WHERE active.tenant_id=j.tenant_id AND active.user_id=j.user_id AND active.id<>j.id "
+                                + "AND active.status='PROCESSING' AND active.lease_owner IS NOT NULL AND active.lease_owner<>'' AND active.lease_until>NOW(3)) ORDER BY j.created_at,j.id LIMIT 1",
                         (rs, rowNum) -> map(rs));
 
         if (jobs.isEmpty()) {
@@ -217,11 +245,11 @@ public class ImageJobService {
         }
 
         JobRecord job = jobs.get(0);
-        LocalDateTime startedAt = LocalDateTime.now();
+        LocalDateTime startedAt = databaseNow();
         long leaseMicros = Math.max(1, leaseDuration.toNanos() / 1_000L);
         int updated =
                 jdbc.update(
-                        "UPDATE image_job SET status='PROCESSING',started_at=NOW(3),attempt_count=attempt_count+1,lease_owner=?,lease_until=DATE_ADD(NOW(3), INTERVAL ? MICROSECOND),updated_at=NOW(3) WHERE id=? AND (status='QUEUED' OR (status='PROCESSING' AND lease_until<NOW(3)))",
+                        "UPDATE image_job SET status='PROCESSING',started_at=NOW(3),attempt_count=attempt_count+1,lease_owner=?,lease_until=TIMESTAMPADD(MICROSECOND, ?, NOW(3)),updated_at=NOW(3) WHERE id=? AND (status='QUEUED' OR (status='PROCESSING' AND (lease_owner IS NULL OR lease_owner='' OR lease_until IS NULL OR lease_until<=NOW(3)))) AND (expires_at>NOW(3) OR result_ready=TRUE)",
                         workerId,
                         leaseMicros,
                         job.id());
@@ -236,7 +264,7 @@ public class ImageJobService {
     // 2.1. 续租：当前 owner 才能延长租约，旧 Worker 不得续期接管者的任务。
     public boolean renewLease(String id, String owner, Duration lease) {
         return jdbc.update(
-                        "UPDATE image_job SET lease_until=DATE_ADD(NOW(3), INTERVAL ? MICROSECOND),updated_at=NOW(3) WHERE id=? AND status='PROCESSING' AND lease_owner=? AND lease_until>NOW(3)",
+                        "UPDATE image_job SET lease_until=TIMESTAMPADD(MICROSECOND, ?, NOW(3)),updated_at=NOW(3) WHERE id=? AND status='PROCESSING' AND lease_owner=? AND lease_until>NOW(3)",
                         Math.max(1, lease.toNanos() / 1000),
                         id,
                         owner)
@@ -246,7 +274,7 @@ public class ImageJobService {
     // 2.2. 延后恢复：保留已有回执，使后续 Worker 继续复制和结算。
     public void defer(String id, String owner) {
         jdbc.update(
-                "UPDATE image_job SET status='QUEUED',lease_owner=NULL,lease_until=NULL,next_retry_at=DATE_ADD(NOW(3),INTERVAL 30 SECOND),updated_at=NOW(3) WHERE id=? AND status='PROCESSING' AND lease_owner=?",
+                "UPDATE image_job SET status='QUEUED',lease_owner=NULL,lease_until=NULL,next_retry_at=TIMESTAMPADD(SECOND,30,NOW(3)),updated_at=NOW(3) WHERE id=? AND status='PROCESSING' AND lease_owner=?",
                 id,
                 owner);
     }
@@ -256,7 +284,7 @@ public class ImageJobService {
     public void recordResult(
             ChatIdentity identity, String id, ImageGenerationProvider.Result result) {
         jdbc.update(
-                "UPDATE image_job SET result_ready=TRUE,generated_url=?,input_tokens=?,output_tokens=?,rationale=?,provider_request_id=?,updated_at=NOW(3),status=CASE WHEN status='FAILED' THEN 'QUEUED' ELSE status END WHERE id=? AND tenant_id=? AND user_id=? AND result_ready=FALSE",
+                "UPDATE image_job SET result_ready=TRUE,generated_url=?,input_tokens=?,output_tokens=?,rationale=?,provider_request_id=?,updated_at=NOW(3),completed_at=CASE WHEN status='FAILED' THEN NULL ELSE completed_at END,status=CASE WHEN status='FAILED' THEN 'QUEUED' ELSE status END WHERE id=? AND tenant_id=? AND user_id=? AND result_ready=FALSE",
                 result.imageUrl(),
                 result.inputTokens(),
                 result.outputTokens(),
@@ -305,7 +333,7 @@ public class ImageJobService {
             String outputKey,
             String rationale,
             String providerRequestId) {
-        LocalDateTime completedAt = LocalDateTime.now();
+        LocalDateTime completedAt = databaseNow();
         int updated =
                 workerId == null
                         ? jdbc.update(
@@ -350,6 +378,17 @@ public class ImageJobService {
     }
 
     public boolean fail(String jobId, String workerId, String message, int maxAttempts) {
+        return fail(jobId, workerId, message, maxAttempts, false);
+    }
+
+    /** A provider result can commit after the worker's final reread; never bury that receipt. */
+    public boolean failWithoutReceipt(String jobId, String workerId, String message, int maxAttempts) {
+        boolean failed = fail(jobId, workerId, message, maxAttempts, true);
+        if (!failed) defer(jobId, workerId);
+        return failed;
+    }
+
+    private boolean fail(String jobId, String workerId, String message, int maxAttempts, boolean withoutReceipt) {
         String safe = message == null ? "图片生成失败" : message.replaceAll("[\\r\\n]+", " ");
 
         if (safe.length() > 1000) {
@@ -357,13 +396,13 @@ public class ImageJobService {
         }
 
         int attempts = Math.max(1, maxAttempts);
-        LocalDateTime completedAt = LocalDateTime.now();
+        LocalDateTime completedAt = databaseNow();
         int updated =
                 workerId == null
                         ? jdbc.update(
                                 "UPDATE image_job SET status=CASE WHEN attempt_count < ? THEN 'QUEUED' ELSE 'FAILED' END,"
                                         + "error_message=?,completed_at=CASE WHEN attempt_count < ? THEN NULL ELSE ? END,updated_at=?,lease_owner=NULL,lease_until=NULL "
-                                        + "WHERE id=? AND status='PROCESSING'",
+                                        + "WHERE id=? AND status='PROCESSING'" + (withoutReceipt ? " AND result_ready=FALSE" : ""),
                                 attempts,
                                 safe,
                                 attempts,
@@ -373,7 +412,7 @@ public class ImageJobService {
                         : jdbc.update(
                                 "UPDATE image_job SET status=CASE WHEN attempt_count < ? THEN 'QUEUED' ELSE 'FAILED' END,"
                                         + "error_message=?,completed_at=CASE WHEN attempt_count < ? THEN NULL ELSE ? END,updated_at=?,lease_owner=NULL,lease_until=NULL "
-                                        + "WHERE id=? AND status='PROCESSING' AND lease_owner=?",
+                                        + "WHERE id=? AND status='PROCESSING' AND lease_owner=?" + (withoutReceipt ? " AND result_ready=FALSE" : ""),
                                 attempts,
                                 safe,
                                 attempts,
