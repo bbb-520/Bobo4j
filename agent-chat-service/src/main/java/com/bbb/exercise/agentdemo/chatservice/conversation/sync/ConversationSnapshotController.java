@@ -23,6 +23,10 @@ public class ConversationSnapshotController {
     public Mono<ResponseEntity<ConversationSnapshotService.View>> get(@PathVariable String id,ServerWebExchange exchange) {
         return identities.resolveRequired(exchange).flatMap(owner->Mono.fromCallable(()->ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(snapshots.get(owner,id))).subscribeOn(Schedulers.boundedElastic()));
     }
+    @GetMapping(params="recent=true")
+    public Mono<ResponseEntity<ConversationSnapshotService.Page>> recent(@RequestParam(required=false) String cursor,@RequestParam(defaultValue="20") int limit,ServerWebExchange exchange) {
+        return identities.resolveRequired(exchange).flatMap(owner->Mono.fromCallable(()->ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(snapshots.recent(owner,cursor,limit))).subscribeOn(Schedulers.boundedElastic()));
+    }
     @PutMapping("/{id}")
     public Mono<ConversationSnapshotService.View> put(@PathVariable String id,@RequestBody ConversationSnapshotService.Write request,ServerWebExchange exchange) {
         return identities.resolveRequired(exchange).flatMap(owner->Mono.fromCallable(()->snapshots.put(owner,id,request)).subscribeOn(Schedulers.boundedElastic()));

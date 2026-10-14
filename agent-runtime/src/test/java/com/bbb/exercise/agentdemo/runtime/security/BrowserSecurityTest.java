@@ -69,6 +69,9 @@ class BrowserSecurityTest {
             return "ok";
         }
 
+        @RequestMapping({"/api/conversations", "/api/conversations/{id}"})
+        String conversations() { return "snapshot"; }
+
         @GetMapping("/api/admin/users")
         String admin() {
             return "unsafe";
@@ -117,6 +120,27 @@ class BrowserSecurityTest {
                 .exchange()
                 .expectStatus()
                 .isUnauthorized();
+    }
+
+    @Test
+    void cloudSnapshotsRequireChatPermissionAndCsrfForWrites() {
+        for (String path : List.of("/api/conversations", "/api/conversations/id")) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+            client.get().uri(path).cookie("bbb_agent_session", "refund-admin")
+                    .header("X-Permissions", "chat:use").exchange().expectStatus().isForbidden();
+            client.get().uri(path).cookie("bbb_agent_session", "user")
+                    .exchange().expectStatus().isOk();
+        }
+        client.put().uri("/api/conversations/id").cookie("bbb_agent_session", "user")
+                .exchange().expectStatus().isForbidden();
+        var result = client.get().uri("/api/auth/csrf").exchange().expectStatus().isOk()
+                .expectBody(Map.class).returnResult();
+        String token = (String) result.getResponseBody().get("token");
+        client.put().uri("/api/conversations/id").cookie("bbb_agent_session", "user")
+                .cookie("XSRF-TOKEN", token).header("X-XSRF-TOKEN", token)
+                .exchange().expectStatus().isOk();
+        client.get().uri("/api/conversations-forged").cookie("bbb_agent_session", "user")
+                .exchange().expectStatus().isForbidden();
     }
 
     @Test
