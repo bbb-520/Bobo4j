@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
 import org.springframework.http.MediaType;
 import reactor.core.publisher.*;
 import tools.jackson.databind.JsonNode;
@@ -48,7 +50,12 @@ public class ModelCallClient {
             int backupTotal) {
         this.models = models;
         this.billing = billing;
-        this.http = http.clone().codecs(c -> c.defaultCodecs().maxInMemorySize(16_000_000)).build();
+        // Paid requests must not reuse an idle provider socket or be replayed by the transport.
+        this.http = http.clone()
+                .clientConnector(new ReactorClientHttpConnector(
+                        HttpClient.newConnection().disableRetry(true)
+                                .option(io.netty.channel.ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(16_000_000)).build();
         this.circuit = circuit;
 
         if (first <= 0 || idle <= 0 || total <= 0 || backupTotal <= 0) {

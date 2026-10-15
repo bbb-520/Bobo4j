@@ -50,3 +50,24 @@ compose.server.local.yml
 /output/
 /tmp/
 /docs/superpowers/
+
+# Private verification, operations, and deployment material
+**/src/test/
+/agent-architecture-tests/
+/ops/
+/infra/
+/scripts/
+/config/
+/docs/
+/.github/
+/.mvn/
+/mvnw
+/mvnw.cmd
+/Dockerfile*
+/*compose*.yml
+/.dockerignore
+**/README.md
+!/README.md
+**/docs/
+**/evaluation/
+/.local-tools/
