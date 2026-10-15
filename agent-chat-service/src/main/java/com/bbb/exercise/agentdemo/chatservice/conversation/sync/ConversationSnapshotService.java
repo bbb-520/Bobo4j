@@ -28,6 +28,31 @@ public class ConversationSnapshotService {
             owner.tenantId(),owner.userId(),limit,offset);
     }
 
+    /** Keyset order is stable even when newer conversations are added between page requests. */
+    public Page recent(ChatIdentity owner,String cursor,int limit) {
+        requireAuthenticated(owner);
+        if(limit<1||limit>20)throw problem(400,"每页会话数量须为 1～20");
+        Long before=null;String afterId=null;
+        if(cursor!=null&&!cursor.isBlank()) {
+            try {
+                if(cursor.length()>2000)throw new IllegalArgumentException();
+                String[] parts=new String(Base64.getUrlDecoder().decode(cursor),StandardCharsets.UTF_8).split("\\n",-1);
+                if(parts.length!=4||!parts[0].equals(owner.tenantId())||!parts[1].equals(owner.userId()))throw new IllegalArgumentException();
+                before=Long.parseLong(parts[2]);afterId=parts[3];requireId(afterId);
+                if(before<0)throw new IllegalArgumentException();
+            }catch(RuntimeException invalid){throw problem(400,"无效会话分页游标");}
+        }
+        String sql="SELECT conversation_id,revision,deleted,title,updated_at FROM conversation_snapshot WHERE tenant_id=? AND user_id=? AND deleted=FALSE";
+        var args=new ArrayList<Object>();args.add(owner.tenantId());args.add(owner.userId());
+        if(before!=null){sql+=" AND (updated_at<? OR (updated_at=? AND conversation_id>?))";args.add(before);args.add(before);args.add(afterId);}
+        sql+=" ORDER BY updated_at DESC,conversation_id ASC LIMIT ?";args.add(limit+1);
+        var rows=jdbc.query(sql,(rs,n)->new Index(rs.getString(1),rs.getLong(2),rs.getBoolean(3),rs.getString(4),rs.getLong(5)),args.toArray());
+        boolean more=rows.size()>limit;var items=List.copyOf(rows.subList(0,Math.min(limit,rows.size())));
+        String next=null;
+        if(more){var last=items.getLast();next=Base64.getUrlEncoder().withoutPadding().encodeToString((owner.tenantId()+"\n"+owner.userId()+"\n"+last.updatedAt()+"\n"+last.id()).getBytes(StandardCharsets.UTF_8));}
+        return new Page(items,next);
+    }
+
     public View get(ChatIdentity owner, String id) {
         requireAuthenticated(owner); requireId(id);
         var rows = jdbc.query("SELECT revision,deleted,snapshot_json FROM conversation_snapshot WHERE tenant_id=? AND user_id=? AND conversation_id=?",
@@ -87,4 +112,5 @@ public class ConversationSnapshotService {
     public record Write(long expectedRevision, boolean deleted, Map<String,Object> snapshot) {}
     public record View(String id,long revision,boolean deleted,Map<String,Object> snapshot) {}
     public record Index(String id,long revision,boolean deleted,String title,long updatedAt) {}
+    public record Page(List<Index> items,String nextCursor) {}
 }

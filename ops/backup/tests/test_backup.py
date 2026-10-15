@@ -25,6 +25,47 @@ class SafetyTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_restore_waits_for_authenticated_final_tcp_server(self):
+        import subprocess
+        directory=self.root/'sql';directory.mkdir();(directory/'mysql.sql').write_text('SELECT 1;')
+        calls=[];attempts=0;container_name=None
+        def fake_run(args, **kwargs):
+            nonlocal attempts,container_name
+            calls.append(args)
+            if args[:2]==['docker','run']:container_name=args[args.index('--name')+1]
+            if 'mysqladmin' in args:
+                return  # mysqladmin ping also succeeds when auth is rejected.
+            if 'mysql' in args and '--execute=SELECT 1' in args:
+                self.assertIn('--protocol=TCP',args)
+                attempts+=1
+                if attempts<3:raise subprocess.CalledProcessError(1,args)
+                return
+            if 'mysql' in args and '-i' in args:
+                self.assertEqual(attempts,3,'SQL import started before authenticated TCP readiness')
+        def inspect(*args,**kwargs):
+            return subprocess.CompletedProcess(args[0],0,(container_name+'\n').encode())
+        with mock.patch.object(backup,'run',side_effect=fake_run),mock.patch.object(backup.subprocess,'run',side_effect=inspect),mock.patch.object(backup.time,'sleep'),mock.patch.object(backup,'check_mysql_storage'):
+            backup.verify_mysql({'restore_mysql_image':'mysql:pinned','mysql':{'databases':['agent']}},directory,self.root)
+        self.assertEqual(attempts,3)
+        self.assertTrue(any('--network' in call and call[call.index('--network')+1]=='none' for call in calls))
+
+    def test_table_verification_uses_mysql_and_rejects_storage_errors(self):
+        import subprocess
+        calls=[]
+        def query(args,**kwargs):
+            calls.append(args)
+            text='agent\tsample\n' if 'information_schema' in args[-1] else 'agent.sample\tcheck\tstatus\tOK\n'
+            return subprocess.CompletedProcess(args,0,text.encode())
+        with mock.patch.object(backup.subprocess,'run',side_effect=query):
+            backup.check_mysql_storage('isolated',['agent'])
+        self.assertTrue(all('mysql' in call and 'mysqlcheck' not in call for call in calls))
+        self.assertTrue(any('CHECK TABLE' in call[-1] for call in calls))
+        def broken(args,**kwargs):
+            text='agent\tsample\n' if 'information_schema' in args[-1] else 'agent.sample\tcheck\terror\tCorrupt\n'
+            return subprocess.CompletedProcess(args,0,text.encode())
+        with mock.patch.object(backup.subprocess,'run',side_effect=broken),self.assertRaises(RuntimeError):
+            backup.check_mysql_storage('isolated',['agent'])
+
     def test_private_prefix_is_mandatory_and_cannot_be_bucket_root(self):
         for prefix in ("", "/", "photos/", "private/", "private/../photos/", "private/x//"):
             with self.assertRaises(ValueError):

@@ -35,6 +35,38 @@ class ConversationSnapshotServiceTest {
         assertThat(service.list(alice,0,100)).hasSize(1);
     }
 
+    @Test void recentEndpointReturnsOnlyTwentyAndACursorRatherThanTheLegacyFullIndex() {
+        for(int i=0;i<45;i++) {
+            String key=UUID.randomUUID().toString();
+            jdbc.update("INSERT INTO conversation_snapshot VALUES(?,?,?,1,FALSE,'history','{}',100)",alice.tenantId(),alice.userId(),key);
+        }
+        var identities=org.mockito.Mockito.mock(com.bbb.exercise.agentdemo.runtime.identity.ChatIdentityResolver.class);
+        org.mockito.Mockito.when(identities.resolveRequired(org.mockito.ArgumentMatchers.any())).thenReturn(reactor.core.publisher.Mono.just(alice));
+        var client=org.springframework.test.web.reactive.server.WebTestClient.bindToController(new ConversationSnapshotController(service,identities)).build();
+        client.get().uri("/api/conversations?recent=true&limit=20").exchange().expectStatus().isOk()
+            .expectBody().jsonPath("$.items.length()").isEqualTo(20).jsonPath("$.nextCursor").isNotEmpty();
+    }
+
+    @Test void keysetTieOrderHasNoDuplicatesAndExcludesTombstonesAndOtherOwners() {
+        for(int i=0;i<45;i++) {
+            String key=String.format("00000000-0000-4000-8000-%012d",i);
+            jdbc.update("INSERT INTO conversation_snapshot VALUES(?,?,?,1,FALSE,'history','{}',100)",alice.tenantId(),alice.userId(),key);
+        }
+        String deleted="ffffffff-ffff-4fff-8fff-ffffffffffff";
+        jdbc.update("INSERT INTO conversation_snapshot VALUES(?,?,?,2,TRUE,'',NULL,200)",alice.tenantId(),alice.userId(),deleted);
+        var first=service.recent(alice,null,20);
+        assertThat(first.items()).hasSize(20);assertThat(first.items().getFirst().id()).endsWith("000000000000");
+        // Insertion ahead of the cursor cannot shift the second page backwards.
+        jdbc.update("INSERT INTO conversation_snapshot VALUES(?,?,?,1,FALSE,'new','{}',300)",alice.tenantId(),alice.userId(),id);
+        var second=service.recent(alice,first.nextCursor(),20);var third=service.recent(alice,second.nextCursor(),20);
+        var all=new java.util.HashSet<String>();first.items().forEach(row->all.add(row.id()));second.items().forEach(row->all.add(row.id()));third.items().forEach(row->all.add(row.id()));
+        assertThat(all).hasSize(45).doesNotContain(deleted,id);assertThat(third.items()).hasSize(5);assertThat(third.nextCursor()).isNull();
+        assertThat(service.recent(bob,null,20).items()).isEmpty();
+        assertThatThrownBy(()->service.recent(bob,first.nextCursor(),20)).hasMessageContaining("400");
+        assertThatThrownBy(()->service.recent(alice,"invalid",20)).hasMessageContaining("400");
+        assertThatThrownBy(()->service.recent(alice,null,21)).hasMessageContaining("400");
+    }
+
     @Test void isolatesBothTenantAndUserAndRequiresAuthentication() {
         service.put(alice,id,new ConversationSnapshotService.Write(0,false,snapshot()));
         assertThat(service.list(bob,0,100)).isEmpty();

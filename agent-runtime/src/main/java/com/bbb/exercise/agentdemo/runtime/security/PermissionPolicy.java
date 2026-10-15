@@ -93,7 +93,8 @@ public final class PermissionPolicy {
             return "model:manage";
         }
 
-        if (under(path, "/api/chat") || under(path, "/api/settings/visual-memory")) {
+        if (under(path, "/api/chat") || under(path, "/api/settings/visual-memory")
+                || under(path, "/api/conversations")) {
             return "chat:use";
         }
 

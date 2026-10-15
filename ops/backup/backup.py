@@ -421,6 +421,41 @@ def snapshot(cfg, cfg_path, stage):
             run(cfg["resume_command"])
 
 
+def check_mysql_storage(name, databases):
+    """Use the installed mysql client; minimal images need not ship mysqlcheck."""
+    def query(sql):
+        result = subprocess.run(["docker", "exec", name, "mysql", "--defaults-extra-file=/run/verify.cnf",
+                                 "--batch", "--raw", "--skip-column-names", "--execute=" + sql],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60)
+        if result.returncode or len(result.stdout) > 1024 * 1024:
+            raise RuntimeError("isolated MySQL table verification query failed")
+        return result.stdout.decode("utf-8").splitlines()
+    if not databases or any(not re.fullmatch(r"[A-Za-z0-9_]+", value) for value in databases):
+        raise ValueError("invalid restore schema names")
+    schemas=",".join("'" + value + "'" for value in databases)
+    rows=query("SELECT table_schema,table_name FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema IN ("+schemas+") ORDER BY table_schema,table_name")
+    tables=[]
+    for row in rows:
+        parts=row.split("\t")
+        if len(parts)!=2 or parts[0] not in databases or any(not re.fullmatch(r"[A-Za-z0-9_]+", value) for value in parts):
+            raise RuntimeError("isolated MySQL table inventory invalid")
+        tables.append(parts)
+    if set(row[0] for row in tables)!=set(databases):
+        raise RuntimeError("isolated MySQL restored schema has no tables")
+    for offset in range(0,len(tables),32):
+        batch=tables[offset:offset+32]
+        checked=query("CHECK TABLE "+",".join("`"+schema+"`.`"+table+"`" for schema,table in batch))
+        expected=set(schema+"."+table for schema,table in batch)
+        valid=set()
+        for row in checked:
+            fields=row.split("\t")
+            if len(fields)!=4 or fields[0] not in expected or fields[2:]!=['status','OK']:
+                raise RuntimeError("isolated MySQL CHECK TABLE rejected restored storage")
+            valid.add(fields[0])
+        if valid!=expected:
+            raise RuntimeError("isolated MySQL table verification incomplete")
+
+
 def verify_mysql(cfg, directory, stage):
     """Restore SQL into a fresh, network-isolated local Docker container only."""
     image = cfg["restore_mysql_image"]
@@ -438,7 +473,8 @@ def verify_mysql(cfg, directory, stage):
         deadline = time.time() + 120
         while True:
             try:
-                run(["docker", "exec", name, "mysqladmin", "--defaults-extra-file=/run/verify.cnf", "ping", "--silent"])
+                run(["docker", "exec", name, "mysql", "--defaults-extra-file=/run/verify.cnf",
+                     "--protocol=TCP", "--host=127.0.0.1", "--connect-timeout=2", "--execute=SELECT 1"])
                 break
             except subprocess.CalledProcessError:
                 if time.time() >= deadline:
@@ -447,7 +483,7 @@ def verify_mysql(cfg, directory, stage):
         with (directory / "mysql.sql").open("rb") as stream:
             run(["docker", "exec", "-i", name, "mysql", "--defaults-extra-file=/run/verify.cnf"], stdin=stream)
         databases = cfg["mysql"]["databases"]
-        run(["docker", "exec", name, "mysqlcheck", "--defaults-extra-file=/run/verify.cnf", "--check", "--databases"] + databases)
+        check_mysql_storage(name, databases)
         # SQL import + CHECK TABLE verifies parse/storage integrity, not application semantics.
     finally:
         found = subprocess.run(["docker", "inspect", "--format", '{{index .Config.Labels "agent.backup.verify"}}', name],
