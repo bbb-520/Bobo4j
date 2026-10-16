@@ -1,4 +1,4 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.mcp;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.context.annotation.*;

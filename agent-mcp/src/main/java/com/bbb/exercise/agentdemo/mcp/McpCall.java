@@ -1,4 +1,4 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.mcp;
 
 /** Operator-selected target and schema identity; contains no URL or credential. */
 public record McpCall(String serverId,String tool,String schemaHash) {

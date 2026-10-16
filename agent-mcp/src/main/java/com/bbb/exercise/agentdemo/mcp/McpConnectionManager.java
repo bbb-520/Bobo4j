@@ -1,7 +1,7 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.mcp;
 
+import com.bbb.exercise.agentdemo.mcp.schema.ToolSchema;
 import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
-import com.bbb.exercise.agentdemo.orchestrator.execution.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.modelcontextprotocol.client.*;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -18,7 +18,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 /** Optional, lazy MCP connections. Only operator-pinned, tenant-scoped read tools reach the ledger. */
-public final class McpConnectionManager implements ExecutionToolRegistry.ToolSource,McpToolExecutor,AutoCloseable {
+public final class McpConnectionManager implements McpToolExecutor,AutoCloseable {
     private final McpProperties config;
     private final MeterRegistry metrics;
     private final Map<String,State> states=new ConcurrentHashMap<>();
@@ -104,15 +104,15 @@ public final class McpConnectionManager implements ExecutionToolRegistry.ToolSou
         }
         if(client!=null)client.closeGracefully().timeout(java.time.Duration.ofSeconds(1)).onErrorResume(e->Mono.empty()).subscribe();
     }
-    @Override public List<ExecutionToolRegistry.Registration> registrations(ExecutionToolRegistry.Scope scope) {
-        if(closed||!config.enabled()||scope.identity()==null||!scope.identity().authenticated())return List.of();
-        var registrations=new ArrayList<ExecutionToolRegistry.Registration>();
+    public List<McpToolDescriptor> tools(ChatIdentity identity) {
+        if(closed||!config.enabled()||identity==null||!identity.authenticated())return List.of();
+        var registrations=new ArrayList<McpToolDescriptor>();
         config.connections().forEach((id,connection)->{
-            if(!connection.tenants().contains(scope.identity().tenantId()))return;
+            if(!connection.tenants().contains(identity.tenantId()))return;
             states.get(id).tools.forEach((name,approved)->{
                 var schema=approved.input();
                 var approval=connection.tools().get(name);var call=new McpCall(id,name,schema.fingerprint());
-                registrations.add(new ExecutionToolRegistry.Registration(approval.alias(),approval.description(),approved.effectiveInput(),(args,who)->ExecutionToolRegistry.Plan.mcp(call,args)));
+                registrations.add(new McpToolDescriptor(approval.alias(),approval.description(),approved.effectiveInput(),call));
             });
         });return List.copyOf(registrations);
     }

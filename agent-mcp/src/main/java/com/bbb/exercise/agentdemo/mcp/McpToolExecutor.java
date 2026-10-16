@@ -1,4 +1,4 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.mcp;
 
 import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
 import java.util.Map;

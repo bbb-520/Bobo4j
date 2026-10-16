@@ -1,6 +1,6 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.mcp;
 
-import com.bbb.exercise.agentdemo.orchestrator.execution.ToolSchema;
+import com.bbb.exercise.agentdemo.mcp.schema.ToolSchema;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.core.io.ClassPathResource;
 import java.net.URI;

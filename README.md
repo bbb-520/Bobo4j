@@ -88,6 +88,7 @@ Agent 接收问题和选定的会话范围，结合已有证据输出结构化�
 | [`agent-api`](agent-api/src/main) | 跨服务协议、DTO 与模型能力定义 |
 | [`agent-common`](agent-common/src/main) | 公共响应、身份签名与基础配置 |
 | [`agent-runtime`](agent-runtime/src/main) | 模型调用、内部服务客户端与对象存储能力 |
+| [`agent-mcp`](agent-mcp/src/main) | MCP 连接、工具发现、定义校验和公开资料结果处理 |
 | [`agent-gateway`](agent-gateway/src/main) | 请求路由、访问控制与流量管理 |
 | [`agent-auth-service`](agent-auth-service/src/main) | 账户、权限、计费、模型配置与支付 |
 | [`agent-chat-service`](agent-chat-service/src/main) | 对话、图片理解与会话记忆 |
@@ -180,6 +181,8 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spri
 </details>
 
 ## Agent 如何使用工具
+
+MCP 客户端位于独立的 [`agent-mcp`](agent-mcp/src/main) 库模块，随编排服务一起打包部署。编排服务通过适配器接入工具，继续管理决策、授权范围、执行账本、预算与回执；没有新增服务进程或端口。MCP 模块不依赖业务服务或数据库。
 
 当前有 **5 个内置工具**，注册于 [`ExecutionToolRegistry`](agent-orchestrator-service/src/main/java/com/bbb/exercise/agentdemo/orchestrator/execution/ExecutionToolRegistry.java)。
 

@@ -9,7 +9,7 @@ import java.util.concurrent.*;
 import com.bbb.exercise.agentdemo.orchestrator.execution.ExecutionStepRunner.BudgetExhausted;
 import com.bbb.exercise.agentdemo.orchestrator.execution.ExecutionStepRunner.StopAfterDispatch;
 import static com.bbb.exercise.agentdemo.orchestrator.execution.ExecutionStepRunner.unwrap;
-import com.bbb.exercise.agentdemo.orchestrator.mcp.*;
+import com.bbb.exercise.agentdemo.mcp.*;
 
 /** Persistent outer loop: model output never calls a tool itself. Remote IO happens outside database transactions. */
 @Component

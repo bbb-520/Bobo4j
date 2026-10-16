@@ -1,10 +1,11 @@
 package com.bbb.exercise.agentdemo.orchestrator.execution;
 
+import com.bbb.exercise.agentdemo.mcp.schema.ToolSchema;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
-import com.bbb.exercise.agentdemo.orchestrator.mcp.*;
+import com.bbb.exercise.agentdemo.mcp.*;
 
 /** Executes and reconciles durable remote steps under the owning Store lease. */
 final class ExecutionStepRunner {

@@ -1,5 +1,6 @@
 package com.bbb.exercise.agentdemo.orchestrator.execution;
 
+import com.bbb.exercise.agentdemo.mcp.schema.ToolSchema;
 import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -89,9 +90,9 @@ public class ExecutionToolRegistry {
     }
     public interface ToolSource {List<Registration> registrations(Scope scope);}
     public record Scope(ChatIdentity identity,String conversationId,String documentConversationId,boolean allowImageGeneration,String callId,String question,Set<String> retrievedDocuments) {public Scope {retrievedDocuments=Set.copyOf(retrievedDocuments);}}
-    public record Plan(String target,String path,Map<String,Object> body,boolean get,com.bbb.exercise.agentdemo.orchestrator.mcp.McpCall mcp) {
+    public record Plan(String target,String path,Map<String,Object> body,boolean get,com.bbb.exercise.agentdemo.mcp.McpCall mcp) {
         public Plan(String target,String path,Map<String,Object> body,boolean get){this(target,path,body,get,null);}
-        public static Plan mcp(com.bbb.exercise.agentdemo.orchestrator.mcp.McpCall call,Map<String,Object> args){return new Plan("mcp","/mcp/"+call.serverId()+"/"+call.tool(),args,false,call);}
+        public static Plan mcp(com.bbb.exercise.agentdemo.mcp.McpCall call,Map<String,Object> args){return new Plan("mcp","/mcp/"+call.serverId()+"/"+call.tool(),args,false,call);}
         public Plan {
             boolean valid=mcp==null?Set.of("rag","chat","media").contains(target)&&path.startsWith("/internal/"+target+"/"):
                     target.equals("mcp")&&!get&&path.equals("/mcp/"+mcp.serverId()+"/"+mcp.tool());

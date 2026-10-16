@@ -1,4 +1,4 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.orchestrator.execution;
 
 /** A local request ID cannot prove the outcome of a remote MCP operation. */
 public final class McpDispatchUncertain extends RuntimeException {

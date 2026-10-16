@@ -1,4 +1,4 @@
-package com.bbb.exercise.agentdemo.orchestrator.execution;
+package com.bbb.exercise.agentdemo.mcp.schema;
 
 import tools.jackson.databind.*;
 import tools.jackson.databind.json.JsonMapper;
@@ -51,7 +51,10 @@ public final class ToolSchema {
         } catch (Exception error) { throw new IllegalArgumentException("工具参数不符合定义"); }
     }
     public String json() { return json; }
-    public String fingerprint() { return ExecutionStore.hash(json); }
+    public String fingerprint() {
+        try {return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
+        catch(java.security.NoSuchAlgorithmException impossible){throw new IllegalStateException(impossible);}
+    }
     public static String canonical(Object value) {return JSON.writeValueAsString(value);}
     public static String simple(Set<String> arguments) {
         var properties = new TreeMap<String,Object>();

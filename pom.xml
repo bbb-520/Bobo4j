@@ -16,6 +16,7 @@
         <module>agent-api</module>
         <module>agent-common</module>
         <module>agent-runtime</module>
+        <module>agent-mcp</module>
         <module>agent-gateway</module>
         <module>agent-orchestrator-service</module>
         <module>agent-auth-service</module>

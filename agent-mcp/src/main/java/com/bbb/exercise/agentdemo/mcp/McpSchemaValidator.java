@@ -1,6 +1,6 @@
-package com.bbb.exercise.agentdemo.orchestrator.mcp;
+package com.bbb.exercise.agentdemo.mcp;
 
-import com.bbb.exercise.agentdemo.orchestrator.execution.ToolSchema;
+import com.bbb.exercise.agentdemo.mcp.schema.ToolSchema;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import java.util.Map;
 
