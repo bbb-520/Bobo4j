@@ -44,14 +44,70 @@ public final class CitationValidator {
             throw new IllegalArgumentException("CITATION_MISSING");
         }
 
-        for (String paragraph : answer.split("\\n\\s*\\n")) {
-            if (!paragraph.isBlank()
-                    && paragraph.replaceAll("[#*\\s]", "").length() > 20
-                    && !CITATION.matcher(paragraph).find()) {
-                throw new IllegalArgumentException("UNCITED_CLAIM");
-            }
+        if (!uncitedUnits(answer).isEmpty()) {
+            throw new IllegalArgumentException("UNCITED_CLAIM");
         }
 
         return citations;
+    }
+
+    /** Bounded structural feedback contains no quoted document/model instructions. */
+    public static String repairFeedback(String answer, int evidenceCount, String reason) {
+        String allowed = "Use only actual evidence IDs [S1] through [S" + evidenceCount + "]. ";
+        if ("UNCITED_CLAIM".equals(reason)) {
+            return reason + ": missing citations in " + String.join(", ", uncitedUnits(answer).stream().limit(8).toList())
+                    + ". Remove the uncited preamble and closing commentary. Cite each supported factual paragraph, list item and table row independently; remove claims the evidence cannot support. " + allowed;
+        }
+        if (Set.of("CITATION_INVALID", "CITATION_MISSING").contains(reason)) {
+            return reason + ": " + allowed + "Attach the supporting source directly to each factual unit. Do not invent citations or cite a source for unsupported content.";
+        }
+        return reason + ": Regenerate a concise answer to the original question, retaining only claims supported by their cited evidence. Preserve conflicts and uncertainty. " + allowed;
+    }
+
+    private static List<String> uncitedUnits(String answer) {
+        var missing = new ArrayList<String>();
+        String[] paragraphs = answer.split("\\R\\s*\\R");
+        for (int p = 0; p < paragraphs.length; p++) {
+            String paragraph = paragraphs[p];
+            String label = "paragraph " + (p + 1);
+            String[] lines = paragraph.split("\\R");
+            boolean table = Arrays.stream(lines).anyMatch(CitationValidator::tableSeparator);
+            boolean list = Arrays.stream(lines).anyMatch(CitationValidator::listStart);
+            if (table) {
+                for (int i = 0; i < lines.length; i++) {
+                    if (tableSeparator(lines[i]) || i + 1 < lines.length && tableSeparator(lines[i + 1])) continue;
+                    if (!lines[i].isBlank() && !CITATION.matcher(lines[i]).find()) missing.add(label + " table row " + (i + 1));
+                }
+            } else if (list) {
+                var unit = new StringBuilder();
+                int item = 0;
+                for (String line : lines) {
+                    if (listStart(line)) {
+                        if (!unit.isEmpty() && !CITATION.matcher(unit).find()
+                                && (item > 0 || unit.toString().replaceAll("[#*\\s]", "").length() > 20)) {
+                            missing.add(item == 0 ? label : label + " list item " + item);
+                        }
+                        unit.setLength(0); item++;
+                    }
+                    if (!line.isBlank()) unit.append(line).append('\n');
+                }
+                if (!unit.isEmpty() && !CITATION.matcher(unit).find()) missing.add(label + " list item " + item);
+            } else if (!paragraph.isBlank() && paragraph.replaceAll("[#*\\s]", "").length() > 20
+                    && !CITATION.matcher(paragraph).find()) {
+                missing.add(label);
+            }
+        }
+        return missing;
+    }
+
+    private static boolean listStart(String line) {
+        return line.matches("\\s*(?:[-+*]|[0-9]+[.)])\\s+.*");
+    }
+
+    private static boolean tableSeparator(String line) {
+        String stripped = line.strip().replaceAll("^\\||\\|$", "");
+        String[] cells = stripped.split("\\|", -1);
+        return (cells.length > 1 || line.indexOf('|') >= 0)
+                && Arrays.stream(cells).allMatch(c -> c.strip().matches(":?-{3,}:?"));
     }
 }
