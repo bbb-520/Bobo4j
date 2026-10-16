@@ -11,6 +11,8 @@
     </parent>
     <artifactId>agent-orchestrator-service</artifactId>
     <dependencies>
+        <dependency><groupId>org.springframework.ai</groupId><artifactId>spring-ai-starter-mcp-client-webflux</artifactId></dependency>
+        <dependency><groupId>com.networknt</groupId><artifactId>json-schema-validator</artifactId><version>3.0.0</version></dependency>
         <dependency><groupId>org.springframework.ai</groupId><artifactId>spring-ai-model</artifactId></dependency>
         <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.bbb.exercise</groupId><artifactId>agent-runtime</artifactId><version>${project.version}</version></dependency>

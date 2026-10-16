@@ -1,5 +1,11 @@
 spring:
   application.name: agent-orchestrator-service
+  ai:
+    mcp:
+      client:
+        enabled: false
+        initialized: false
+        toolcallback.enabled: false
   config.import: optional:nacos:agent-orchestrator-service.yml?group=AGENT_GROUP&refreshEnabled=true
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:agent}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -26,6 +32,9 @@ server:
   port: ${SERVER_PORT:18084}
   shutdown: graceful
 app:
+  mcp:
+    enabled: ${MCP_ENABLED:false}
+    request-timeout: ${MCP_REQUEST_TIMEOUT:10s}
   chat:
     base-url: ${CHAT_SERVICE_URL:http://127.0.0.1:18085}
   rag:
@@ -39,6 +48,9 @@ app:
   auth:
     base-url: ${AUTH_SERVICE_URL:http://127.0.0.1:18081}
     session-cookie: ${AUTH_SESSION_COOKIE:bbb_agent_session}
+logging:
+  level:
+    io.modelcontextprotocol.client.LifecycleInitializer: WARN
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true

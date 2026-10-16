@@ -137,6 +137,33 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spri
 按部署配置启动其余服务及网关，再连接配套 [Bobo_web](https://github.com/bbb-520/Bobo_web)。领域服务与管理端口应位于内网。公开仓库不附带生产凭据和一键部署环境。
 
 <details>
+<summary><b>默认服务端口与内网拓扑</b></summary>
+
+| 服务 | 默认端口 | 职责 |
+| --- | ---: | --- |
+| `agent-gateway` | 18000 | 浏览器 API 入口 |
+| `agent-auth-service` | 18081 | 身份、权限与计费 |
+| `agent-media-service` | 18082 | 图片资产与创作任务 |
+| `agent-content-service` | 18083 | 内容作品 |
+| `agent-orchestrator-service` | 18084 | Agent 与受控 MCP 派发 |
+| `agent-chat-service` | 18085 | 对话与识图 |
+| `agent-rag-service` | 18086 | 文档、检索与问答 |
+
+```text
+浏览器 → agent-gateway:18000
+                ├─ agent-auth-service:18081
+                ├─ agent-media-service:18082
+                ├─ agent-content-service:18083
+                ├─ agent-orchestrator-service:18084
+                ├─ agent-chat-service:18085
+                └─ agent-rag-service:18086
+```
+
+以上为源码默认端口，可由部署配置覆盖；生产环境只对外暴露网关入口。
+
+</details>
+
+<details>
 <summary><b>主要 API 入口</b></summary>
 
 | 入口 | 用途 |
@@ -166,7 +193,9 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spri
 
 模型输出工具选择与参数，服务端通过注册表和执行账本完成受控派发。工具不能自行接受模型提供的用户身份或绕过调用账本。
 
-**MCP 扩展仍在规划中。** 后续可以将外部 MCP 工具适配到现有注册与派发层，沿用身份隔离、工具白名单、预算、超时和回执核对。当前不宣称已支持任意 MCP Server 接入。
+**MCP 第一阶段底座已实现，默认关闭。** 编排服务支持后台连接、工具发现、完整参数校验、租户白名单与受控派发；工具的输入定义需按指纹审核固定。成功结果可重放，超时或停止后的未知调用不自动重发。联网搜索、技术文档和 GitHub 工具将在后续阶段接入，当前没有默认开放的外部工具。
+
+运维通过 `app.mcp` 配置已审核的 Streamable HTTP 连接、精确租户列表、工具别名和 Schema 指纹；第一阶段只允许明确审核为只读且无外部收费的工具。模型选择工具仍经过平台执行账本。MCP 服务离线不会阻止普通聊天运行，远端返回的 Token 字段不作为模型计费依据。
 
 ## 安全与边界
 
@@ -186,6 +215,7 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spri
 
 | 日期 | 改进 |
 | --- | --- |
+| 2026-10-16 | 增加默认关闭的 MCP 接入底座：后台连接、参数校验、租户隔离与持久回执 |
 | 2026-10-16 | 细化无引用段落修复反馈，逐项校验列表与表格引用；保持独立事实支持评估 |
 | 2026-10-15 | 模型请求使用独立连接，关闭传输层自动重发，减少闲置连接重置导致的附件失败 |
 

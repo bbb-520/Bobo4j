@@ -100,6 +100,7 @@ public class ExecutionController {
     private void verifyReconciled(ChatIdentity identity, String id, ExecutionStore.Row row)
             throws Exception {
         for (var step : store.reconcilableSteps(identity, id)) {
+            if("mcp".equals(step.target()))throw new ResponseStatusException(HttpStatus.CONFLICT,"外部工具结果不明，本阶段不支持自动恢复；确认后请新建任务");
             boolean rag = "rag".equals(step.target());
             String path =
                     rag

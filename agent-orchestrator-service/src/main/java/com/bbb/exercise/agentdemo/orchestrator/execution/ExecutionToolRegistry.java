@@ -16,7 +16,11 @@ import java.nio.charset.StandardCharsets;
 public class ExecutionToolRegistry {
     private final JsonMapper json=JsonMapper.builder().build();
     private final Map<String,ToolCallback> callbacks=new LinkedHashMap<>();
-    public ExecutionToolRegistry(List<Registration> extensions) {
+    private final List<ToolSource> sources;
+    public ExecutionToolRegistry(List<Registration> extensions) {this(extensions,List.of());}
+    @org.springframework.beans.factory.annotation.Autowired
+    public ExecutionToolRegistry(List<Registration> extensions,List<ToolSource> sources) {
+        this.sources=List.copyOf(sources);
         var registrations=new ArrayList<>(builtins());registrations.addAll(extensions);
         for(var registration:registrations) {
             if(callbacks.putIfAbsent(registration.name(),callback(registration))!=null)throw new IllegalArgumentException("重复的工具注册");
@@ -25,25 +29,32 @@ public class ExecutionToolRegistry {
     public Set<String> names(){return Set.copyOf(callbacks.keySet());}
     public List<ToolCallback> callbacks(){return List.copyOf(callbacks.values());}
     public String descriptions(){return callbacks.values().stream().map(c->c.getToolDefinition().name()+": "+c.getToolDefinition().description()+" "+c.getToolDefinition().inputSchema()).reduce((a,b)->a+"\n"+b).orElse("");}
+    private Map<String,ToolCallback> available(Scope scope) {
+        var available=new LinkedHashMap<>(callbacks);
+        for(var source:sources) for(var registration:source.registrations(scope))
+            if(available.putIfAbsent(registration.name(),callback(registration))!=null)throw new IllegalArgumentException("重复的工具注册");
+        return available;
+    }
+    public Set<String> names(Scope scope){return Set.copyOf(available(scope).keySet());}
+    public String descriptions(Scope scope){return available(scope).values().stream().map(c->c.getToolDefinition().name()+": "+c.getToolDefinition().description()+" "+c.getToolDefinition().inputSchema()).reduce((a,b)->a+"\n"+b).orElse("");}
     public Map<String,Object> dispatch(AgentDecision decision,Scope scope,Dispatcher ledger) throws Exception {
         if(scope.identity()==null||!scope.identity().authenticated())throw new IllegalArgumentException("工具需要认证身份");
-        var callback=callbacks.get(decision.tool());if(callback==null)throw new IllegalArgumentException("不允许的工具");
+        var callback=available(scope).get(decision.tool());if(callback==null)throw new IllegalArgumentException("不允许的工具");
         var invocation=new Invocation(scope,ledger);
         try {callback.call(json.writeValueAsString(decision.arguments()),new ToolContext(Map.of("execution",invocation)));}
         catch(DispatchFailure failure){throw (Exception)failure.getCause();}
         return invocation.result;
     }
     private ToolCallback callback(Registration registration) {
-        var properties=new TreeMap<String,Object>();registration.arguments().forEach(a->properties.put(a,Map.of("type",Set.of("limit","afterOrdinal").contains(a)?"integer":"string")));
-        var definition=ToolDefinition.builder().name(registration.name()).description(registration.description()).inputSchema(json.writeValueAsString(Map.of("type","object","properties",properties,"additionalProperties",false))).build();
+        var definition=ToolDefinition.builder().name(registration.name()).description(registration.description()).inputSchema(registration.schema().json()).build();
         return new ToolCallback() {
             public ToolDefinition getToolDefinition(){return definition;}
             public String call(String input){throw new IllegalStateException("工具只能通过受控执行账本调用");}
             @SuppressWarnings("unchecked") public String call(String input,ToolContext context) {
                 if(context==null||!(context.getContext().get("execution") instanceof Invocation invocation))return call(input);
                 Map<String,Object> args=json.readValue(input,LinkedHashMap.class);
-                if(!registration.arguments().containsAll(args.keySet())||input.length()>8000)throw new IllegalArgumentException("工具参数不在白名单");
-                Plan plan=registration.planner().apply(Map.copyOf(args),invocation.scope);
+                registration.schema().validate(args);
+                Plan plan=registration.planner().apply(Collections.unmodifiableMap(new LinkedHashMap<>(args)),invocation.scope);
                 try {invocation.result=invocation.ledger.dispatch(plan);return json.writeValueAsString(invocation.result);}
                 catch(RuntimeException e){throw e;}catch(Exception e){throw new DispatchFailure(e);}
             }
@@ -71,10 +82,21 @@ public class ExecutionToolRegistry {
     private static void document(Scope s){if(s.documentConversationId()==null)throw new IllegalArgumentException("该工具需要已选择的文档会话");}
     private static String query(Map<String,Object> args,Scope scope){Object raw=args.getOrDefault("query",args.getOrDefault("prompt",scope.question()));if(!(raw instanceof String q)||q.isBlank()||q.length()>16000)throw new IllegalArgumentException("工具查询无效");return q;}
     private static long number(Object value){if(!(value instanceof Number n)||n.doubleValue()!=n.longValue())throw new IllegalArgumentException("工具数值参数无效");return n.longValue();}
-    public record Registration(String name,String description,Set<String> arguments,BiFunction<Map<String,Object>,Scope,Plan> planner) {public Registration {if(name==null||!name.matches("[a-z][a-z0-9_.]{1,63}")||description==null||description.isBlank()||planner==null)throw new IllegalArgumentException("工具注册定义无效");arguments=Set.copyOf(arguments);if(arguments.stream().anyMatch(a->!a.matches("[a-zA-Z][a-zA-Z0-9]{0,31}")||Set.of("userId","tenantId","owner","filter","system").contains(a)))throw new IllegalArgumentException("工具不能注册身份或权限参数");}}
+    public record Registration(String name,String description,ToolSchema schema,BiFunction<Map<String,Object>,Scope,Plan> planner) {
+        public Registration(String name,String description,Set<String> arguments,BiFunction<Map<String,Object>,Scope,Plan> planner){this(name,description,new ToolSchema(ToolSchema.simple(arguments)),planner);}
+        public Registration(String name,String description,String schema,BiFunction<Map<String,Object>,Scope,Plan> planner){this(name,description,new ToolSchema(schema),planner);}
+        public Registration {if(name==null||!name.matches("[a-z][a-z0-9_.]{1,63}")||description==null||description.isBlank()||description.length()>1000||planner==null||schema==null)throw new IllegalArgumentException("工具注册定义无效");}
+    }
+    public interface ToolSource {List<Registration> registrations(Scope scope);}
     public record Scope(ChatIdentity identity,String conversationId,String documentConversationId,boolean allowImageGeneration,String callId,String question,Set<String> retrievedDocuments) {public Scope {retrievedDocuments=Set.copyOf(retrievedDocuments);}}
-    public record Plan(String target,String path,Map<String,Object> body,boolean get) {
-        public Plan {if(!Set.of("rag","chat","media").contains(target)||!path.startsWith("/internal/"+target+"/")||path.contains("..")||path.contains("#"))throw new IllegalArgumentException("工具目标不在内部白名单");body=body==null?null:Collections.unmodifiableMap(new LinkedHashMap<>(body));}
+    public record Plan(String target,String path,Map<String,Object> body,boolean get,com.bbb.exercise.agentdemo.orchestrator.mcp.McpCall mcp) {
+        public Plan(String target,String path,Map<String,Object> body,boolean get){this(target,path,body,get,null);}
+        public static Plan mcp(com.bbb.exercise.agentdemo.orchestrator.mcp.McpCall call,Map<String,Object> args){return new Plan("mcp","/mcp/"+call.serverId()+"/"+call.tool(),args,false,call);}
+        public Plan {
+            boolean valid=mcp==null?Set.of("rag","chat","media").contains(target)&&path.startsWith("/internal/"+target+"/"):
+                    target.equals("mcp")&&!get&&path.equals("/mcp/"+mcp.serverId()+"/"+mcp.tool());
+            if(!valid||path.contains("..")||path.contains("#"))throw new IllegalArgumentException("工具目标不在白名单");body=body==null?null:Collections.unmodifiableMap(new LinkedHashMap<>(body));
+        }
     }
     @FunctionalInterface public interface Dispatcher {Map<String,Object> dispatch(Plan plan) throws Exception;}
     private static final class Invocation {final Scope scope;final Dispatcher ledger;Map<String,Object> result;Invocation(Scope scope,Dispatcher ledger){this.scope=scope;this.ledger=ledger;}}

@@ -50,8 +50,7 @@ public record AgentDecision(
                                         .constructMapType(
                                                 LinkedHashMap.class, String.class, Object.class));
 
-                if (args.size() > 8
-                        || mapper.writeValueAsString(args).length() > 8000
+                if (mapper.writeValueAsString(args).length() > 8000
                         || args.keySet().stream()
                                 .anyMatch(
                                         k ->
@@ -65,7 +64,7 @@ public record AgentDecision(
                     throw new IllegalArgumentException();
                 }
 
-                return new AgentDecision(type, tool, Map.copyOf(args), null);
+                return new AgentDecision(type, tool, Collections.unmodifiableMap(new LinkedHashMap<>(args)), null);
             }
 
             if (type.equals("FINAL")) {
