@@ -1,61 +1,194 @@
-# BoboWorld4J（BOBO4J）
+<p align="center">
+  <img src="assets/readme/hero.svg" width="100%" alt="BoboWorld4J：基于 Java 与 Spring AI，让对话、知识与工具在同一条任务链中协作。" />
+</p>
 
-基于 Java 21 与 Spring AI 的 AI 应用平台后端，提供流式对话、文档问答、Agent 执行、图片创作和账户计费。
+<p align="center">
+  <a href="platform-parent/pom.xml"><img src="https://img.shields.io/badge/Java-21-e76f51?style=flat-square" alt="Java 21" /></a>
+  <a href="platform-parent/pom.xml"><img src="https://img.shields.io/badge/Spring_Boot-4.1.1-6db33f?style=flat-square" alt="Spring Boot 4.1.1" /></a>
+  <a href="platform-parent/pom.xml"><img src="https://img.shields.io/badge/Spring_AI-2.0.1-27aaa5?style=flat-square" alt="Spring AI 2.0.1" /></a>
+  <a href="#快速开始"><img src="https://img.shields.io/badge/Maven-3.9%2B-e9b44c?style=flat-square" alt="Maven 3.9 及以上" /></a>
+  <a href="https://github.com/bbb-520/Bobo4j/issues"><img src="https://img.shields.io/badge/Issues-欢迎反馈-f56c72?style=flat-square" alt="欢迎反馈问题" /></a>
+</p>
 
-配套前端：[Bobo_web](https://github.com/bbb-520/Bobo_web)。本仓库展示核心业务源码、数据库迁移、应用配置和 Maven 构建定义。测试、运维资料、部署脚本及环境密钥在私有工作区维护。
+<p align="center">
+  <a href="#它是什么"><b>它是什么</b></a> ·
+  <a href="#功能特性">功能特性</a> ·
+  <a href="#一个任务是怎么走完的">任务流程</a> ·
+  <a href="#它是怎么搭起来的">架构</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#agent-如何使用工具">工具调用</a> ·
+  <a href="#安全与边界">安全与边界</a> ·
+  <a href="#开发与维护">开发与维护</a>
+</p>
 
-## 核心能力
+> 项目持续迭代中。本仓库公开核心后端源码、构建定义与 README 配图；配套前端在 [Bobo_web](https://github.com/bbb-520/Bobo_web) 独立维护。以下能力以当前公开代码为准，实际可用性还取决于部署配置和外部服务。
 
-- 对话：流式回答、图片理解、会话历史、用户及租户隔离。
-- 文档：Tika 文件解析、语义切片、Milvus 索引、Dense/BM25 混合检索、重排序、摘要及带引用的问答。
-- Agent：持久化多步任务、工具白名单、预算约束、停止与恢复、事件回放。
-- 创作：图片生成与编辑、图片资产、Zine 和 Bobo World 作品。
-- 账户：邮箱验证码、登录、免费 Token、钱包、消费记录、支付宝支付、RBAC 与审计。
-- 模型调用：主备模型、真实用量回执、幂等结算、结果不明时保留核对状态。
+## 它是什么
 
-## 模块
+**BoboWorld4J（BOBO4J）是一个基于 Java 21 与 Spring AI 的 AI 应用平台后端。**
 
-| 模块 | 职责 |
+把模型对话、文档知识、Agent 工具和图片创作接到同一套账户与任务体系里：上传一份文档，查看摘要并带着来源连续追问；交给 Agent 一个问题，让它检索证据、选择工具、保存执行进度；遇到中断或供应商结果不明时，保留状态和回执，继续查询与核对。
+
+<p align="center">
+  <a href="https://www.boboo.xin"><b>在线体验</b></a> ·
+  <a href="https://github.com/bbb-520/Bobo_web">前端仓库</a> ·
+  <a href="https://github.com/bbb-520/Bobo4j/issues">报告问题</a>
+</p>
+
+## 功能特性
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <h3>💬 流式对话与识图</h3>
+      <p>流式回答、会话历史、图片理解与视觉记忆检索。让文字、图片和后续追问处于同一个会话上下文。</p>
+    </td>
+    <td width="50%" align="center">
+      <h3>📚 带来源的文档问答</h3>
+      <p>文件解析、语义切片、混合检索、重排序与摘要。回答逐段附上来源，并校验引用和事实支持。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <h3>🧭 可恢复的 Agent</h3>
+      <p>模型选择工具，服务端校验后执行。任务、步骤和事件持久化，支持预算约束、停止、恢复与游标回放。</p>
+    </td>
+    <td width="50%" align="center">
+      <h3>🎨 图片与内容创作</h3>
+      <p>图片生成、参考图编辑、图片资产与内容作品服务。生成任务独立保存，便于查询结果和核对消费。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <h3>🧾 账户与用量结算</h3>
+      <p>邮箱验证码、账户会话、免费 Token、钱包、消费记录与支付宝支付。按实际回执幂等结算。</p>
+    </td>
+    <td width="50%" align="center">
+      <h3>🛡️ 可追溯的服务协作</h3>
+      <p>服务间身份签名、用户与租户隔离、权限和审计。模型主备调用、健康检查与指标帮助定位故障。</p>
+    </td>
+  </tr>
+</table>
+
+## 一个任务是怎么走完的
+
+<a href="assets/readme/task-flow.svg"><img src="assets/readme/task-flow.svg" width="100%" alt="任务流程：发起任务、模型决策、受控调用、结果校验、持久回执；校验未通过时有限修复或明确拒答。" /></a>
+
+Agent 接收问题和选定的会话范围，结合已有证据输出结构化决策。服务端检查工具白名单、参数、身份和执行预算，再把调用交给相应领域服务；每一步保存状态及回执，供停止、恢复和事件回放使用。
+
+文档问答还要经过**相关性、来源引用和事实支持校验**。没有证据时明确说明；引用不合格时提供具体修复反馈，修复仍失败则拒绝输出未经支持的答案。供应商调用结果不明时保留核对状态，避免把未知结果记成成功或重复派发收费请求。
+
+## 它是怎么搭起来的
+
+<a href="assets/readme/architecture.svg"><img src="assets/readme/architecture.svg" width="100%" alt="架构总览：网页前端、网关与账户服务；持久化 Agent 编排；聊天、RAG、图片与内容服务；共享模型运行时、协议和身份签名；MySQL、Redis、Milvus、Nacos及外部供应商。" /></a>
+
+| 模块 | 负责什么 |
 | --- | --- |
-| `platform-parent` | 统一依赖及构建配置 |
-| `agent-api` | 跨服务协议、DTO、模型能力定义 |
-| `agent-common` | 公共响应、身份签名及基础配置 |
-| `agent-runtime` | 模型调用、内部服务客户端、身份认证、对象存储 |
-| `agent-gateway` | 请求路由、访问控制和流量管理 |
-| `agent-auth-service` | 账户、权限、计费、模型配置和支付 |
-| `agent-chat-service` | 对话、图片理解及会话记忆 |
-| `agent-rag-service` | 文档入库、索引、检索、摘要和问答 |
-| `agent-orchestrator-service` | 持久化 Agent 执行与工具协调 |
-| `agent-media-service` | 图片资产、生成及编辑任务 |
-| `agent-content-service` | 内容作品、摄影书及 Zine |
+| [`platform-parent`](platform-parent/pom.xml) | 统一依赖版本与构建配置 |
+| [`agent-api`](agent-api/src/main) | 跨服务协议、DTO 与模型能力定义 |
+| [`agent-common`](agent-common/src/main) | 公共响应、身份签名与基础配置 |
+| [`agent-runtime`](agent-runtime/src/main) | 模型调用、内部服务客户端与对象存储能力 |
+| [`agent-gateway`](agent-gateway/src/main) | 请求路由、访问控制与流量管理 |
+| [`agent-auth-service`](agent-auth-service/src/main) | 账户、权限、计费、模型配置与支付 |
+| [`agent-chat-service`](agent-chat-service/src/main) | 对话、图片理解与会话记忆 |
+| [`agent-rag-service`](agent-rag-service/src/main) | 文档处理、索引、检索、摘要与问答 |
+| [`agent-orchestrator-service`](agent-orchestrator-service/src/main) | 持久化 Agent 执行与工具协调 |
+| [`agent-media-service`](agent-media-service/src/main) | 图片资产、生成与编辑任务 |
+| [`agent-content-service`](agent-content-service/src/main) | 内容作品、摄影书与 Zine |
 
-## 构建
+技术组合：**Spring Boot / Spring AI / Spring Cloud Alibaba**，MySQL、Redis、Nacos、Milvus，以及 Tika、BM25、RRF 和重排序。具体版本以各模块 POM 为准。
 
-需要 JDK 21 与 Maven 3.9。各模块的依赖版本以 `pom.xml` 为准。
+## 快速开始
+
+### 1. 获取与构建
+
+准备 **JDK 21、Maven 3.9 或更新版本**。
 
 ```sh
+git clone https://github.com/bbb-520/Bobo4j.git
+cd Bobo4j
 mvn -B -Dmaven.compiler.fork=true -DskipTests package
 ```
 
-服务配置位于各模块的 `src/main/resources/application.yml`；数据库迁移位于 `src/main/resources/db/migration`。运行前按这些配置提供 MySQL、Redis、Nacos、Milvus，以及实际使用的模型供应商、OSS、邮箱或支付配置。敏感值通过环境变量或私有配置中心注入，不写入仓库。
+公开仓库提供核心源码，以上命令用于构建；完整测试与运维资料在私有开发基线维护。
 
-平台各服务有独立启动入口，网关面向浏览器，领域服务和管理端口在内网运行。生产环境启用 `prod` 配置，并配置服务间签名密钥。公开源码不包含服务器环境、账户凭据或部署产物。
+### 2. 准备依赖与配置
 
-## 主要接口
+按实际启用的功能准备服务，并向环境变量或私有配置中心注入敏感值。
+
+| 依赖 | 用途 | 配置入口 |
+| --- | --- | --- |
+| MySQL、Redis、Nacos | 业务数据、缓存与服务配置/发现 | 各服务的 `src/main/resources/application.yml` |
+| Milvus、Embedding 与 Rerank 模型 | 文档索引和检索 | RAG 服务配置及模型路由 |
+| 对话、视觉与图片模型供应商 | 模型问答、识图和图片创作 | 账户服务的模型配置及对应服务配置 |
+| OSS、邮箱、支付宝 | 资产、验证码与充值 | 对应领域服务配置；按需启用 |
+| 服务间签名密钥 | 内网身份认证 | 各服务安全配置，保持密钥配置一致 |
+
+数据库迁移保存在各服务的 `src/main/resources/db/migration`，由 Flyway 管理。运行前检查配置占位符及必填项，生产环境使用 `prod` 配置。
+
+### 3. 启动服务与前端
+
+各服务都有独立启动入口。例如，依赖与配置就绪后启动账户服务：
+
+```sh
+java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
+```
+
+按部署配置启动其余服务及网关，再连接配套 [Bobo_web](https://github.com/bbb-520/Bobo_web)。领域服务与管理端口应位于内网。公开仓库不附带生产凭据和一键部署环境。
+
+<details>
+<summary><b>主要 API 入口</b></summary>
 
 | 入口 | 用途 |
 | --- | --- |
 | `/api/auth/**` | 登录、注册与账户会话 |
 | `/api/chat` | 流式对话 |
-| `/api/agent-executions/**` | 创建、查询、停止及恢复 Agent 任务 |
-| `/api/documents/**` | 文档上传、处理进度、摘要及重试 |
-| `/api/document-conversations/**` | 文档会话与引用 |
-| `/api/billing/**` | 钱包、额度和消费记录 |
+| `/api/agent-executions/**` | 创建、查询、停止与恢复 Agent 任务 |
+| `/api/documents/**` | 文档上传、处理进度、摘要与重试 |
+| `/api/document-conversations/**` | 文档会话与问答 |
+| `/api/billing/**` | 钱包、额度与消费记录 |
 
-具体请求字段、权限和响应格式以对应 Controller 及 `agent-api` 协议为准。
+具体请求字段、权限与响应格式，以对应 Controller 和 `agent-api` 协议为准。
 
-## 模型连接修复
+</details>
 
-2026-10-15：模型请求使用独立连接，避免闲置连接被供应商重置后导致附件处理失败；关闭传输层自动重发，确保请求次数与持久化计费尝试一致。无法确认供应商结果的请求继续保留核对状态，避免伪造成功或重复结算。
+## Agent 如何使用工具
 
-2026-10-16：文档分析直接生成带来源引用的结论，对无引用段落提供具体修复反馈，并逐条检查列表和表格引用。修复仍须通过独立的相关性及事实支持评估。完整开发基线包含私有测试和发布资料，公开仓库由固定导出规则生成。
+当前有 **5 个内置工具**，注册于 [`ExecutionToolRegistry`](agent-orchestrator-service/src/main/java/com/bbb/exercise/agentdemo/orchestrator/execution/ExecutionToolRegistry.java)。
+
+| 工具 | 能做什么 | 调用边界 |
+| --- | --- | --- |
+| `rag.search` | 检索所选文档会话的证据 | 限定文档会话与用户身份 |
+| `rag.answer` | 基于文档回答并校验答案 | 经过检索、引用和事实评估 |
+| `rag.read_sections` | 读取已检索到的文档原文片段 | 限定已知来源和读取范围 |
+| `visual_memory.search` | 检索当前用户的视觉记忆 | 限定用户与租户 |
+| `media.create` | 创建图片生成任务 | 需要用户明确授权图片生成 |
+
+模型输出工具选择与参数，服务端通过注册表和执行账本完成受控派发。工具不能自行接受模型提供的用户身份或绕过调用账本。
+
+**MCP 扩展仍在规划中。** 后续可以将外部 MCP 工具适配到现有注册与派发层，沿用身份隔离、工具白名单、预算、超时和回执核对。当前不宣称已支持任意 MCP Server 接入。
+
+## 安全与边界
+
+- **身份和权限在服务端校验。** 用户与租户范围由可信身份建立，领域服务通过内部签名协作。
+- **模型输出需要检查。** 文档和图片内容作为待分析数据处理，答案仍须经过引用与事实评估；模型判断存在局限，重要结论应查看原文。
+- **消费按实际回执核对。** 幂等重放沿用既有结果；无法确认供应商结果时保留核对状态。
+- **停止有执行边界。** 已向供应商派发的请求可能继续执行，停止页面等待不代表撤销供应商调用。
+- **源码与线上配置分开。** 密钥、数据库连接凭据、真实业务数据和服务器环境保持私有。
+
+## 开发与维护
+
+公开 `main` 保持核心业务源码、构建文件、README 与配图；完整测试、发布保护、运维脚本及验证记录在私有开发分支维护。公开源码提交与实际服务器部署分别记录版本，便于定位和回滚。
+
+维护时重点关注：模型供应商连通性、真实用量回执、失败与核对状态、文档引用质量、数据库迁移兼容性，以及索引和数据库备份。修改模型或问答链路后，重新验证简历分析、长文档、表格、无证据问题、连续追问与幂等重放。
+
+### 最近的改进
+
+| 日期 | 改进 |
+| --- | --- |
+| 2026-10-16 | 细化无引用段落修复反馈，逐项校验列表与表格引用；保持独立事实支持评估 |
+| 2026-10-15 | 模型请求使用独立连接，关闭传输层自动重发，减少闲置连接重置导致的附件失败 |
+
+欢迎通过 [Issues](https://github.com/bbb-520/Bobo4j/issues) 提交可复现问题或改进建议。请附上复现步骤、相关模块与脱敏错误信息，避免提交真实密钥或个人资料。
+
+<p align="center"><sub>先找到证据，再给出答案。让每一步协作，都有迹可循。</sub></p>
