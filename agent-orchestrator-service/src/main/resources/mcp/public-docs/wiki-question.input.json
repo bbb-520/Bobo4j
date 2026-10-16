@@ -1,0 +1,27 @@
+{
+  "properties": {
+    "question": {
+      "description": "The question to ask about the repository.",
+      "type": "string"
+    },
+    "repoName": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "GitHub repository or list of repositories (max 10) in owner/repo format."
+    }
+  },
+  "required": [
+    "repoName",
+    "question"
+  ],
+  "type": "object"
+}

@@ -27,8 +27,10 @@ public record McpProperties(boolean enabled, Duration requestTimeout, Map<String
         }
         @Override public String toString(){return "McpConnection[endpoint="+endpoint+", credentials=redacted]";}
     }
-    public record Approval(String alias,String description,String schemaSha256,boolean readOnly,boolean noExternalCharge) {
+    public record Approval(String alias,String description,String schemaSha256,boolean readOnly,boolean noExternalCharge,McpDocumentPolicy policy) {
+        public Approval(String alias,String description,String schemaSha256,boolean readOnly,boolean noExternalCharge){this(alias,description,schemaSha256,readOnly,noExternalCharge,McpDocumentPolicy.STANDARD);}
         public Approval {
+            policy=policy==null?McpDocumentPolicy.STANDARD:policy;
             if(alias==null||!alias.matches("mcp[.][a-z0-9_.]{1,59}")||description==null||description.isBlank()||description.length()>1000
                     ||schemaSha256==null||!schemaSha256.matches("[a-f0-9]{64}")||!readOnly||!noExternalCharge)
                 throw new IllegalArgumentException("MCP tools require reviewed schema, read-only policy and no external charge");

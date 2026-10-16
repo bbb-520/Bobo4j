@@ -1,0 +1,12 @@
+{
+  "properties": {
+    "url": {
+      "description": "URL of the Microsoft documentation page to read",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "type": "object"
+}

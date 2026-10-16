@@ -1,0 +1,10 @@
+{
+  "properties": {
+    "query": {
+      "default": null,
+      "description": "a query or topic about Microsoft/Azure products, services, platforms, developer tools, frameworks, or APIs",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

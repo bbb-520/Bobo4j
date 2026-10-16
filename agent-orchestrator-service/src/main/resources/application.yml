@@ -35,6 +35,9 @@ app:
   mcp:
     enabled: ${MCP_ENABLED:false}
     request-timeout: ${MCP_REQUEST_TIMEOUT:10s}
+    public-docs:
+      enabled: ${MCP_PUBLIC_DOCS_ENABLED:false}
+      tenants: ${MCP_PUBLIC_DOCS_TENANTS:}
   chat:
     base-url: ${CHAT_SERVICE_URL:http://127.0.0.1:18085}
   rag:

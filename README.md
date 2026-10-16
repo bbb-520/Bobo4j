@@ -193,9 +193,22 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spri
 
 模型输出工具选择与参数，服务端通过注册表和执行账本完成受控派发。工具不能自行接受模型提供的用户身份或绕过调用账本。
 
-**MCP 第一阶段底座已实现，默认关闭。** 编排服务支持后台连接、工具发现、完整参数校验、租户白名单与受控派发；工具的输入定义需按指纹审核固定。成功结果可重放，超时或停止后的未知调用不自动重发。联网搜索、技术文档和 GitHub 工具将在后续阶段接入，当前没有默认开放的外部工具。
+**MCP 支持首批 4 个可选的公开文档工具，源码默认关闭。** 编排服务支持后台连接、工具发现、完整参数校验、租户白名单与受控派发；工具输入定义按审核过的版本固定指纹。成功结果可重放，超时或停止后的未知调用不自动重发。
+
+| 可选 MCP 工具 | 用途 | 数据范围 |
+| --- | --- | --- |
+| `mcp.learn.search` | 检索 Microsoft/Azure 官方技术文档 | 最多四条带来源链接的摘要 |
+| `mcp.learn.fetch` | 读取 Microsoft Learn 文档页 | 限定官方 HTTPS 链接；长文明确标记节选 |
+| `mcp.deepwiki.structure` | 查看开源仓库的文档目录 | DeepWiki 已收录的公开 `owner/repo` |
+| `mcp.deepwiki.ask` | 查询开源仓库实现与使用方式 | 基于仓库资料生成的解释，需与官方原文区分 |
+
+在 **AGENT 模式**提问，例如“检索 Azure Java 托管身份的官方说明”或“查阅 spring-projects/spring-ai，解释 ToolCallback 的用途”。模型根据已授权工具的说明选择工具及参数；服务端再次校验后调用。只有已启用、租户获授权且定义未变化的工具才会进入模型可用目录。普通 CHAT 和文档问答流程继续使用原有路径。
+
+预设服务为 [Microsoft Learn](https://github.com/MicrosoftDocs/mcp) 和 [DeepWiki](https://docs.devin.ai/work-with-devin/deepwiki-mcp)，官方提供免密钥的公开数据访问。只发送简短公开技术查询，不发送用户文档、身份凭据或私有代码。这里只支持指定资料库的文档检索；全网搜索、私人 GitHub 账户及写入工具留待后续阶段。
 
 运维通过 `app.mcp` 配置已审核的 Streamable HTTP 连接、精确租户列表、工具别名和 Schema 指纹；第一阶段只允许明确审核为只读且无外部收费的工具。模型选择工具仍经过平台执行账本。MCP 服务离线不会阻止普通聊天运行，远端返回的 Token 字段不作为模型计费依据。
+
+启用首批预设需同时设置 `MCP_ENABLED=true`、`MCP_PUBLIC_DOCS_ENABLED=true` 和精确的 `MCP_PUBLIC_DOCS_TENANTS`，建议 `MCP_REQUEST_TIMEOUT=30s`。没有租户白名单不能启用；工具定义变化会停止放行，需重新审核。文档摘要保留链接，节选会标记 `truncated`；工具服务的免费访问不免除模型决策和回答本身的既有费用。
 
 ## 安全与边界
 
@@ -215,6 +228,7 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --spri
 
 | 日期 | 改进 |
 | --- | --- |
+| 2026-10-16 | 接入四个可选公开文档 MCP 工具，增加严格参数边界、来源链接及长结果节选 |
 | 2026-10-16 | 增加默认关闭的 MCP 接入底座：后台连接、参数校验、租户隔离与持久回执 |
 | 2026-10-16 | 细化无引用段落修复反馈，逐项校验列表与表格引用；保持独立事实支持评估 |
 | 2026-10-15 | 模型请求使用独立连接，关闭传输层自动重发，减少闲置连接重置导致的附件失败 |

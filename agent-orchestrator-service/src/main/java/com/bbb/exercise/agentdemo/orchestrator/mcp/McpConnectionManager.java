@@ -32,11 +32,12 @@ public final class McpConnectionManager implements ExecutionToolRegistry.ToolSou
         volatile CompletableFuture<?> pending;
         long nextAttempt;int failures;
     }
-    private record ApprovedTool(ToolSchema input,ToolSchema output) {}
+    private record ApprovedTool(ToolSchema input,ToolSchema effectiveInput,ToolSchema output) {}
     public McpConnectionManager(McpProperties config,MeterRegistry metrics) {
         this.config=config;this.metrics=metrics;
         this.normalizer=new McpResultNormalizer(config.connections().values().stream().map(McpProperties.Connection::bearerToken).toList());
-        config.connections().keySet().forEach(id->{var state=new State();state.status=config.enabled()?"DISCONNECTED":"DISABLED";states.put(id,state);});
+        config.connections().keySet().forEach(id->{var state=new State();state.status=config.enabled()?"DISCONNECTED":"DISABLED";states.put(id,state);
+            io.micrometer.core.instrument.Gauge.builder("agent.mcp.approved.tools",state,s->s.tools.size()).tag("server",id).register(metrics);});
     }
     public Map<String,String> status(){var result=new TreeMap<String,String>();states.forEach((id,s)->result.put(id,s.status));return Collections.unmodifiableMap(result);}
 
@@ -59,7 +60,7 @@ public final class McpConnectionManager implements ExecutionToolRegistry.ToolSou
                             try {
                                 var schema=new ToolSchema(json.writeValueAsString(tool.inputSchema()));
                                 var output=tool.outputSchema()==null?null:new ToolSchema(json.writeValueAsString(tool.outputSchema()),false);
-                                if(schema.fingerprint().equals(approval.schemaSha256()))approved.put(tool.name(),new ApprovedTool(schema,output));
+                                if(schema.fingerprint().equals(approval.schemaSha256()))approved.put(tool.name(),new ApprovedTool(schema,approval.policy().input(schema),output));
                                 else metrics.counter("agent.mcp.schema.rejections","server",id).increment();
                             } catch(IllegalArgumentException invalid){metrics.counter("agent.mcp.schema.rejections","server",id).increment();}
                         }
@@ -111,7 +112,7 @@ public final class McpConnectionManager implements ExecutionToolRegistry.ToolSou
             states.get(id).tools.forEach((name,approved)->{
                 var schema=approved.input();
                 var approval=connection.tools().get(name);var call=new McpCall(id,name,schema.fingerprint());
-                registrations.add(new ExecutionToolRegistry.Registration(approval.alias(),approval.description(),schema,(args,who)->ExecutionToolRegistry.Plan.mcp(call,args)));
+                registrations.add(new ExecutionToolRegistry.Registration(approval.alias(),approval.description(),approved.effectiveInput(),(args,who)->ExecutionToolRegistry.Plan.mcp(call,args)));
             });
         });return List.copyOf(registrations);
     }
@@ -123,9 +124,9 @@ public final class McpConnectionManager implements ExecutionToolRegistry.ToolSou
         synchronized(state){client=state.client;approved=state.tools.get(call.tool());}
         ToolSchema schema=approved==null?null:approved.input();
         if(client==null||schema==null||!schema.fingerprint().equals(call.schemaHash()))throw new IllegalArgumentException("MCP 工具不可用或定义已变化");
-        schema.validate(args);
+        approved.effectiveInput().validate(args);
         return client.callTool(new McpSchema.CallToolRequest(call.tool(),args)).timeout(config.requestTimeout())
-                .map(result->normalizer.normalize(call,result,approved.output())).doOnError(error->disconnect(call.serverId(),state,client)).toFuture();
+                .map(result->normalizer.normalize(call,result,approved.output(),connection.tools().get(call.tool()).policy(),args)).doOnError(error->disconnect(call.serverId(),state,client)).toFuture();
     }
     @Override @PreDestroy public void close() {
         closed=true;

@@ -39,10 +39,15 @@ public final class ToolSchema {
     }
 
     public void validate(Map<String,Object> args) {
+        validate(args,8000);
+    }
+    /** Outputs are already wire-bounded; validate them before bounded evidence projection. */
+    public void validateOutput(Map<String,Object> args) {validate(args,64_000);}
+    private void validate(Map<String,Object> args,int maxCharacters) {
         try {
             if (args == null || protectIdentity&&args.keySet().stream().anyMatch(IDENTITY::contains)) throw new IllegalArgumentException();
             String encoded = JSON.writeValueAsString(args);
-            if (encoded.length() > 8000 || !validator.validate(JSON.readTree(encoded)).isEmpty()) throw new IllegalArgumentException();
+            if (encoded.length() > maxCharacters || !validator.validate(JSON.readTree(encoded)).isEmpty()) throw new IllegalArgumentException();
         } catch (Exception error) { throw new IllegalArgumentException("工具参数不符合定义"); }
     }
     public String json() { return json; }
