@@ -59,6 +59,9 @@ management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   endpoint.health.probes.enabled: true
 app:
+  chat:
+    # Conservative UTF-8 bytes, additionally capped at 20 messages / 32000 rendered characters.
+    history-token-limit: ${CHAT_HISTORY_TOKEN_LIMIT:96000}
   vision-memory:
     dimensions: ${VISION_MEMORY_DIMENSIONS:1024}
     similarity-threshold: ${VISION_MEMORY_SIMILARITY_THRESHOLD:0.55}

@@ -127,13 +127,8 @@ public class InternalCompletionService {
 
                             String history =
                                     session == null ? "" : conversations.committedHistory(session);
-                            String user =
-                                    history.isBlank()
-                                            ? question
-                                            : "【已提交的会话历史，仅用于理解指代】\n"
-                                                    + history
-                                                    + "\n【当前问题】\n"
-                                                    + question;
+                            String user = com.bbb.exercise.agentdemo.chatservice.conversation.ConversationHistory
+                                    .withQuestion(history, question);
 
                             jdbc.update(
                                     "INSERT INTO chat_completion(call_id,user_id,tenant_id,parameter_hash,model_user,status) VALUES (?,?,?,?,?,?)",

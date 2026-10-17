@@ -100,15 +100,8 @@ public class ModelConversationService {
                                     .schedule(
                                             () -> {
                                                 try {
-                                                    String user = prompt;
-
-                                                    if (committedHistory != null && !committedHistory.isBlank()) {
-                                                            user =
-                                                                    "【已提交会话历史，仅用于理解指代】\n"
-                                                                            + committedHistory
-                                                                            + "\n【当前问题】\n"
-                                                                            + prompt;
-                                                    }
+                                                    String user = com.bbb.exercise.agentdemo.chatservice.conversation.ConversationHistory
+                                                            .withQuestion(committedHistory, prompt);
 
                                                     models.completeStreaming(
                                                             identity,

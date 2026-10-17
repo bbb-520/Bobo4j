@@ -15,11 +15,21 @@ import java.time.LocalDateTime;
 public class ConversationPersistenceService {
     private final ConversationMapper conversationMapper;
     private final ChatMessageMapper messageMapper;
+    private final int historyTokenBudget;
 
     public ConversationPersistenceService(
             ConversationMapper conversationMapper, ChatMessageMapper messageMapper) {
+        this(conversationMapper, messageMapper, ConversationHistory.DEFAULT_TOKEN_BUDGET);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ConversationPersistenceService(
+            ConversationMapper conversationMapper, ChatMessageMapper messageMapper,
+            @org.springframework.beans.factory.annotation.Value("${app.chat.history-token-limit:96000}") int historyTokenBudget) {
+        if (historyTokenBudget < 0) throw new IllegalArgumentException("历史预算不能为负数");
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
+        this.historyTokenBudget = historyTokenBudget;
     }
 
     // 1. 会话归属：复用当前用户的有效会话，或为尚未占用的合法 ID 建立归属。
@@ -158,37 +168,22 @@ public class ConversationPersistenceService {
         }
     }
 
-    // 3. 模型历史：只选已完成的消息，限制条数和长度后恢复为时间正序。
+    // 3. 兼容文本入口：历史选择统一委托完整轮次策略。
     public String committedHistory(ConversationSession session) {
-        if (session == null) {
-            return "";
-        }
+        return ConversationHistory.render(recentTurns(session, historyTokenBudget));
+    }
 
-        var messages =
-                messageMapper.selectList(
+    /** Returns a recent whole-attempt suffix; tokenBudget is a conservative UTF-8 byte bound. */
+    public java.util.List<ChatTurn> recentTurns(ConversationSession session, int tokenBudget) {
+        if (tokenBudget < 0) throw new IllegalArgumentException("历史预算不能为负数");
+        if (session == null || tokenBudget == 0) return java.util.List.of();
+        var messages = messageMapper.selectList(
                         Wrappers.<ChatMessageEntity>lambdaQuery()
                                 .eq(ChatMessageEntity::getConversationDbId, session.databaseId())
-                                .eq(ChatMessageEntity::getCompleted, 1)
                                 .in(ChatMessageEntity::getRole, "user", "assistant")
                                 .orderByDesc(ChatMessageEntity::getCreatedAt)
                                 .orderByDesc(ChatMessageEntity::getId)
-                                .last("LIMIT 20"));
-        var selected = new java.util.ArrayList<String>();
-        int size = 0;
-
-        for (var message : messages) {
-            String line = message.getRole() + ": " + message.getContent();
-
-            if (size + line.length() > 32000) {
-                break;
-            }
-
-            selected.add(line);
-            size += line.length();
-        }
-
-        java.util.Collections.reverse(selected);
-
-        return String.join("\n", selected);
+                                .last("LIMIT " + ConversationHistory.CANDIDATE_LIMIT));
+        return ConversationHistory.select(messages, tokenBudget);
     }
 }
