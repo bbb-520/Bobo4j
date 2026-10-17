@@ -171,11 +171,13 @@ public class ChatService {
             String question, ConversationSession session, Instant receivedAt) {
         String conversationId = session.conversationId();
         String prompt = question.trim();
-        Mono<AtomicReference<StringBuilder>> turn =
+        record PreparedTurn(String history, AtomicReference<StringBuilder> answer) {}
+        Mono<PreparedTurn> turn =
                 Mono.fromCallable(
                                 () -> {
+                                    String history = conversations.committedHistory(session);
                                     conversations.appendUserMessage(session, prompt);
-                                    return new AtomicReference<>(new StringBuilder());
+                                    return new PreparedTurn(history, new AtomicReference<>(new StringBuilder()));
                                 })
                         .subscribeOn(Schedulers.boundedElastic());
         // 3.1. 生命周期收尾：正常结束保存完整回答，错误或取消保存未完成内容。
@@ -185,7 +187,7 @@ public class ChatService {
                                 answer ->
                                         modelConversation
                                                 .answerEvents(
-                                                        session.identity(), prompt, conversationId)
+                                                        session.identity(), prompt, conversationId, answer.history())
                                                 .doOnNext(
                                                         event -> {
                                                             String text =
@@ -201,10 +203,10 @@ public class ChatService {
                                                                     || event.type()
                                                                             .equals(
                                                                                     "answer_committed")) {
-                                                                answer.set(new StringBuilder(text));
+                                                                answer.answer().set(new StringBuilder(text));
                                                             } else if (event.type()
                                                                     .equals("answer_delta")) {
-                                                                answer.get().append(text);
+                                                                answer.answer().get().append(text);
                                                             }
                                                         })
                                                 .filter(
@@ -216,10 +218,10 @@ public class ChatService {
                                                                                 "model_status")
                                                                         .contains(event.type()))
                                                 .map(ChatService::generationEvent),
-                                answer -> persistAssistant(session, answer.get().toString(), true),
+                                answer -> persistAssistant(session, answer.answer().get().toString(), true),
                                 (answer, error) ->
-                                        persistAssistant(session, answer.get().toString(), false),
-                                answer -> persistAssistant(session, answer.get().toString(), false))
+                                        persistAssistant(session, answer.answer().get().toString(), false),
+                                answer -> persistAssistant(session, answer.answer().get().toString(), false))
                         .concatWith(Flux.just(stopEvent()))
                         .onErrorResume(
                                 error ->

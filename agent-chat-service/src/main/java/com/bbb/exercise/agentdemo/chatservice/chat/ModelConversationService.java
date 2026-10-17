@@ -70,6 +70,18 @@ public class ModelConversationService {
     // 1. 文本模型会话：结合已提交历史和视觉记忆组织模型输入。
     public Flux<com.bbb.exercise.agentdemo.api.model.ModelContracts.GenerationEvent> answerEvents(
             ChatIdentity identity, String prompt, String conversationId) {
+        return Flux.defer(() -> {
+            String history = "";
+            if (conversationId != null && conversations != null) {
+                history = conversations.committedHistory(conversations.openOrCreate(conversationId, identity));
+            }
+            return answerEvents(identity, prompt, conversationId, history);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The caller captures history before saving this user turn; never reload it after that save. */
+    public Flux<com.bbb.exercise.agentdemo.api.model.ModelContracts.GenerationEvent> answerEvents(
+            ChatIdentity identity, String prompt, String conversationId, String committedHistory) {
         return Flux.create(
                 sink -> {
                     var worker =
@@ -79,22 +91,12 @@ public class ModelConversationService {
                                                 try {
                                                     String user = prompt;
 
-                                                    if (conversationId != null
-                                                            && conversations != null) {
-                                                        var session =
-                                                                conversations.openOrCreate(
-                                                                        conversationId, identity);
-                                                        String history =
-                                                                conversations.committedHistory(
-                                                                        session);
-
-                                                        if (!history.isBlank()) {
+                                                    if (committedHistory != null && !committedHistory.isBlank()) {
                                                             user =
                                                                     "【已提交会话历史，仅用于理解指代】\n"
-                                                                            + history
+                                                                            + committedHistory
                                                                             + "\n【当前问题】\n"
                                                                             + prompt;
-                                                        }
                                                     }
 
                                                     models.completeStreaming(
