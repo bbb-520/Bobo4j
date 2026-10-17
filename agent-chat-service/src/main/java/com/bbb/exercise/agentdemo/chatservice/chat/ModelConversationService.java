@@ -53,18 +53,29 @@ public class ModelConversationService {
         if (question == null || question.isBlank()) return Mono.just(waiting);
         return mediaClient.mediaAsset(attachment.getAssetId(), identity.userId(), identity.tenantId())
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("图片资产不可用")))
-                .flatMap(asset -> Mono.fromCallable(() -> {
+                .flatMap(asset -> classifyImageQuestion(identity, question))
+                .map(intent -> intent == com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.REMIX
+                        ? com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.GENERATE : intent);
+    }
+
+    /** Classify only the user's instruction; asset access remains with the eventual action. */
+    public Mono<com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent> classifyImageQuestion(
+            ChatIdentity identity, String question) {
+        var waiting = com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.WAIT_FOR_INSTRUCTION;
+        if (question == null || question.isBlank()) return Mono.just(waiting);
+        return Mono.fromCallable(() -> {
                     var result = models.complete(identity, "intent:" + java.util.UUID.randomUUID(),
                             "CLASSIFY", "", question, false);
                     return switch (result.text().strip()) {
                         case "GENERATE" -> com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.GENERATE;
+                        case "REMIX" -> com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.REMIX;
                         case "DESCRIBE" -> com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.DESCRIBE;
                         default -> waiting;
                     };
                 }).subscribeOn(Schedulers.boundedElastic()).onErrorResume(error -> {
                     log.warn("[chat] image intent unavailable errorType={}", error.getClass().getSimpleName());
                     return Mono.just(waiting);
-                }));
+                });
     }
 
     // 1. 文本模型会话：结合已提交历史和视觉记忆组织模型输入。
