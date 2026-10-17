@@ -259,7 +259,7 @@ public class ModelCallClient {
             Consumer<GenerationEvent> events) {
         Objects.requireNonNull(events, "generation events");
 
-        if (!Set.of("CHAT", "VISION", "DOCUMENT_QA", "SUMMARY", "EVALUATION", "DECISION")
+        if (!Set.of("CHAT", "VISION", "DOCUMENT_QA", "SUMMARY", "EVALUATION", "DECISION", "CLASSIFY")
                 .contains(mode)) {
             throw new IllegalArgumentException("模型调用模式无效");
         }
@@ -328,6 +328,7 @@ public class ModelCallClient {
                 fallback
                         && !"EVALUATION".equals(mode)
                         && !"DECISION".equals(mode)
+                        && !"CLASSIFY".equals(mode)
                         && budget - primaryBound >= fallbackBound;
         long deadline = System.nanoTime() + Duration.ofSeconds(90).toNanos();
         var primaryOutput = new AtomicBoolean();
@@ -361,7 +362,8 @@ public class ModelCallClient {
                             images,
                             selected,
                             false,
-                            total,
+                            "CLASSIFY".equals(mode) && total.compareTo(Duration.ofSeconds(5)) > 0
+                                    ? Duration.ofSeconds(5) : total,
                             events,
                             primaryOutput,
                             false,
@@ -757,7 +759,7 @@ public class ModelCallClient {
                             Map.of("role", "user", "content", content)));
             request.put("stream", true);
             request.put("stream_options", Map.of("include_usage", true));
-            request.put("max_tokens", 2048);
+            request.put("max_tokens", "CLASSIFY".equals(mode) ? 16 : 2048);
             request.put("temperature", backup ? 0.2 : 0.3);
 
             if (model.provider() == ModelProvider.QWEN) {

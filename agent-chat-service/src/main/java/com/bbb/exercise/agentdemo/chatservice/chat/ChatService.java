@@ -87,13 +87,23 @@ public class ChatService {
         }
 
         // 2.3. 图片意图：先判断是否只需理解画面，避免上传图片就触发付费生成。
-        ConversationIntent intent = ConversationIntent.classifyText(question, true, false);
+        return modelConversation.classifyImageIntent(session.identity(), attachment, question)
+                .flatMapMany(intent -> {
+                    if (intent == ConversationIntent.GENERATE) {
+                        return generateImage(question, session, attachment, receivedAt);
+                    }
+                    if (intent == ConversationIntent.DESCRIBE || question == null || question.isBlank()) {
+                        return imageAnalysis(question, session, attachment, intent, receivedAt);
+                    }
+                    return Flux.just(sessionInfoEvent(session.conversationId(), session.created()),
+                            waitingEvent("暂时无法确认图片创作意图，请明确说明要理解图片，还是生成或编辑图片。"), stopEvent());
+                })
+                .onErrorResume(error -> Flux.just(sessionInfoEvent(session.conversationId(), session.created()),
+                        errorEvent("图片附件不可用或已过期，请重新上传后再试"), stopEvent()));
+    }
 
-        if (intent == ConversationIntent.WAIT_FOR_INSTRUCTION
-                || intent == ConversationIntent.DESCRIBE) {
-            return imageAnalysis(question, session, attachment, intent, receivedAt);
-        }
-
+    private Flux<ChatEventVO> generateImage(String question, ConversationSession session,
+            ChatAttachmentRequest attachment, Instant receivedAt) {
         // 2.4. 图片生成路径：创建后台任务，并把任务 ID 和确认消息返回当前对话。
         String prompt = question == null || question.isBlank() ? DEFAULT_PROMPT : question.trim();
         String acknowledgement = "已收到照片，正在后台生成一张图片。完成后结果会回到当前对话。";
