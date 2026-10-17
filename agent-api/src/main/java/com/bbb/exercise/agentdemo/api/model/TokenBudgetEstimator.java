@@ -62,4 +62,9 @@ public final class TokenBudgetEstimator {
     private static long bytes(String text) {
         return text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length;
     }
+
+    /** Conservative text-only bound for context selection, not measured usage or a price. */
+    public static long tokens(String text) {
+        return bytes(text);
+    }
 }

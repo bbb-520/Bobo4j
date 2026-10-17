@@ -32,6 +32,9 @@ server:
   port: ${SERVER_PORT:18084}
   shutdown: graceful
 app:
+  execution:
+    # Conservative UTF-8-byte token upper bound for receipt JSON, including wrapper/markers.
+    context-token-limit: ${EXECUTION_CONTEXT_TOKEN_LIMIT:6000}
   mcp:
     enabled: ${MCP_ENABLED:false}
     request-timeout: ${MCP_REQUEST_TIMEOUT:10s}

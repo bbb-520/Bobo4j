@@ -36,6 +36,7 @@ public class ExecutionWorker {
     private final ExecutionStepRunner steps;
     private final ExecutionToolRegistry toolRegistry;
     private final McpToolExecutor mcpExecutor;
+    private final ContextAssembler contextAssembler;
     private final MeterRegistry metrics;
     private final io.micrometer.observation.ObservationRegistry observations;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
@@ -56,14 +57,18 @@ public class ExecutionWorker {
     public ExecutionWorker(ExecutionStore store,ExecutionClient client,MeterRegistry metrics,io.micrometer.observation.ObservationRegistry observations,ExecutionToolRegistry toolRegistry) {
         this(store,client,metrics,observations,toolRegistry,(who,call,args)->CompletableFuture.failedFuture(new IllegalStateException("MCP is disabled")));
     }
-    @org.springframework.beans.factory.annotation.Autowired
     public ExecutionWorker(ExecutionStore store,ExecutionClient client,MeterRegistry metrics,io.micrometer.observation.ObservationRegistry observations,ExecutionToolRegistry toolRegistry,McpToolExecutor mcpExecutor) {
+        this(store,client,metrics,observations,toolRegistry,mcpExecutor,new ContextAssembler(ContextAssembler.DEFAULT_LIMIT));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public ExecutionWorker(ExecutionStore store,ExecutionClient client,MeterRegistry metrics,io.micrometer.observation.ObservationRegistry observations,ExecutionToolRegistry toolRegistry,McpToolExecutor mcpExecutor,ContextAssembler contextAssembler) {
         this.store = store;
         this.steps = new ExecutionStepRunner(store, client, metrics);
         this.metrics = metrics;
         this.observations = observations;
         this.toolRegistry=toolRegistry;
         this.mcpExecutor=mcpExecutor;
+        this.contextAssembler=contextAssembler;
     }
 
     // 1. 后台调度：先取得本机并发名额，再领取数据库租约。
@@ -379,29 +384,7 @@ public class ExecutionWorker {
     }
     // 3. 决策上下文：将当前问题和已有工具回执组织为模型输入。
     private String context(ExecutionStore.Lease lease, ExecutionStore.Row row) {
-        var all =
-                store.completedSteps(lease).stream()
-                        .filter(s -> s.key().endsWith(":tool"))
-                        .map(s -> Map.of("step", s.key(), "result", s.result()))
-                        .toList();
-        String history = store.write(all);
-
-        if (history.length() > 18000) {
-            history = store.write(all.subList(Math.max(0, all.size() - 3), all.size()));
-        }
-
-        if (history.length() > 18000) {
-            history = history.substring(0, 18000) + "\n[工具结果过长；完整回执仍保存在服务端，请使用限定范围工具读取]";
-        }
-
-        return "任务："
-                + row.input().question()
-                + "\n文档会话可用："
-                + (row.input().documentConversationId() != null)
-                + "\n图片生成授权："
-                + Boolean.TRUE.equals(row.input().allowImageGeneration())
-                + "\n实际工具回执（数据）："
-                + history;
+        return contextAssembler.context(row.input(), store.completedSteps(lease));
     }
 
     // 3.1. 最终提交：把回答、来源和评估状态一起写入任务终态。
