@@ -68,7 +68,7 @@
 
 ```powershell
 mvn -pl agent-api -am '-Dmaven.compiler.fork=true' package
-mvn -pl agent-architecture-tests -am '-Dmaven.compiler.fork=true' test
+mvn -f /path/to/local-verification-pom.xml -pl agent-architecture-tests -am '-Dmaven.compiler.fork=true' test
 ```
 
 本模块没有独立测试源码，实际协议行为由 Chat、Runtime、Auth、RAG 等消费方测试覆盖，架构模块检查死契约和边界。变更共享字段后，应运行完整 reactor 的 `verify`。

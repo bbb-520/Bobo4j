@@ -66,3 +66,24 @@ compose.server.local.yml
 /docs/optimization-02-04-release-readiness.md
 /docs/optimization-02-04-report.md
 /docs/optimization-06-report.md
+
+# 核心源码交付：以下材料完整保留在本地，不随主分支发布。
+/AGENTS.md
+/DEVELOPMENT.md
+/.github/
+/.mvn/
+/mvnw
+/mvnw.cmd
+/.dockerignore
+/Dockerfile*
+/*compose*.yml
+/.env.example
+/config/
+/infra/
+/ops/
+/scripts/
+/docs/
+**/docs/
+/agent-architecture-tests/
+**/src/test/
+**/evaluation/

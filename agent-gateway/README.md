@@ -68,7 +68,7 @@ POM 和配置接入 Sentinel；具体限流效果取决于运行时是否配置�
 | `CORS_ALLOWED_ORIGINS` | 允许的前端 origin 模式列表 |
 | `SENTINEL_DASHBOARD` / `SENTINEL_CLIENT_PORT` | Dashboard 地址 / 默认客户端通信端口 8719 |
 
-Nacos 配置导入的 Data ID 为 `agent-gateway.yml`，group 为 `AGENT_GROUP`。其余环境准备见 [infra](../infra/README.md)。
+Nacos 配置导入的 Data ID 为 `agent-gateway.yml`，group 为 `AGENT_GROUP`。其余环境准备见 infra（本地路径 `../infra/README.md`，不随核心源码发布）。
 
 ## 6. 构建、运行和验证
 
@@ -85,7 +85,7 @@ Invoke-RestMethod http://localhost:18000/actuator/health
 mvn -pl agent-gateway -am '-Dmaven.compiler.fork=true' test
 ```
 
-[测试目录](src/test/java/com/bbb/exercise/agentdemo/gateway) 覆盖路由服务名、内部路径边界、身份头清理、会话检查和邮件来源签名。
+测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/gateway`，不随核心源码发布） 覆盖路由服务名、内部路径边界、身份头清理、会话检查和邮件来源签名。
 
 ## 7. 常见问题与扩展
 

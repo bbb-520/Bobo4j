@@ -113,7 +113,7 @@ java -jar agent-content-service/target/agent-content-service-0.0.1-SNAPSHOT.jar
 
 ## 9. 测试、排错和扩展
 
-另开终端执行 `mvn -pl agent-content-service -am '-Dmaven.compiler.fork=true' test`。[测试目录](src/test/java/com/bbb/exercise/agentdemo/contentservice) 覆盖启动配置、schema、Zine 回执恢复和 Bobo 清理契约。
+另开终端执行 `mvn -pl agent-content-service -am '-Dmaven.compiler.fork=true' test`。测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/contentservice`，不随核心源码发布） 覆盖启动配置、schema、Zine 回执恢复和 Bobo 清理契约。
 
 - **模型不一致**：检查 Auth IMAGE 配置与 Media 供应商设置，并检查 Nacos 覆盖。
 - **生成超时**：先检查回执列表和消费记录；外部代理超时还应与图片生成耗时匹配。

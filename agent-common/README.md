@@ -68,6 +68,6 @@ POM 引入 WebClient、Prometheus registry 和 Zipkin 相关依赖。`applicatio
 mvn -pl agent-common -am '-Dmaven.compiler.fork=true' test
 ```
 
-[测试目录](src/test/java/com/bbb/exercise/agentdemo/common) 覆盖响应封装、签名、观测约定，以及根聚合 POM、配置、部署资产和 Flyway 隔离契约。`InfrastructureContainersTest` 涉及容器环境，应查看该测试的启用条件。
+测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/common`，不随核心源码发布） 覆盖响应封装、签名、观测约定，以及根聚合 POM、配置、部署资产和 Flyway 隔离契约。`InfrastructureContainersTest` 涉及容器环境，应查看该测试的启用条件。
 
 新增 Common 能力时应确认它确实没有业务归属。架构门禁禁止把 Controller、持久化类和服务实现复制到本模块。内部请求出现 401 时优先核对 key ID、密钥、时钟、audience 和 operation，再核对接收端调用服务白名单。

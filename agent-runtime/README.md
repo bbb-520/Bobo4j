@@ -83,7 +83,7 @@ GET / HEAD / OPTIONS / TRACE、内部接口和两个支付回调免 CSRF。支�
 mvn -pl agent-runtime -am '-Dmaven.compiler.fork=true' test
 ```
 
-[测试目录](src/test/java/com/bbb/exercise/agentdemo/runtime) 覆盖模型流式协议、用量和兜底、权限路径、浏览器认证 / CSRF、OSS 配置。引用库之后还需要确认服务启动类的扫描范围包含需要的 Runtime 组件。
+测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/runtime`，不随核心源码发布） 覆盖模型流式协议、用量和兜底、权限路径、浏览器认证 / CSRF、OSS 配置。引用库之后还需要确认服务启动类的扫描范围包含需要的 Runtime 组件。
 
 - **401**：检查 Cookie 名称、有效期、Auth 可达性和内部签名配置。
 - **403**：检查 CSRF Cookie / header 和用户权限；授权通过后仍可能被资源所有权检查拒绝。
@@ -91,4 +91,4 @@ mvn -pl agent-runtime -am '-Dmaven.compiler.fork=true' test
 - **UNKNOWN / 待核对**：查看 Auth 的调用组与消费记录，保留原 `callId` 和回执。
 - **OSS URL 失效**：重新通过业务读取接口获取签名 URL，不把 URL 当永久资产 ID。
 
-完整运行步骤见 [infra](../infra/README.md)，计费状态详见 [Auth](../agent-auth-service/README.md)。
+完整运行步骤见 infra（本地路径 `../infra/README.md`，不随核心源码发布），计费状态详见 [Auth](../agent-auth-service/README.md)。

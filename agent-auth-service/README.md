@@ -126,7 +126,7 @@ generation 和参数哈希阻止旧尝试或改参请求覆盖现有调用。免
 | 钱包 / 充值 | `billing_wallet`、`model_usage`、`payment_order`、`payment_refund`、`usage_reconciliation` |
 | 调用组 | `model_call_group`、`model_call_attempt`、尝试历史、故障预算和对账表 |
 
-关键环境配置包括：`MYSQL_*`、`NACOS_*`、内部签名 / Cookie 配置；`SMTP_*`、`AUTH_OTP_SECRET`（至少 32 字符）；`OPENAI_API_KEY`、`QWEN_API_KEY`、各 `PLATFORM_*` 模型参数；`PLATFORM_RERANK_BASE_URL` 须填实际区域 / 工作空间地址；`BILLING_*`；`PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`。完整默认值见模块 YAML，部署覆盖见 [infra](../infra/README.md)。
+关键环境配置包括：`MYSQL_*`、`NACOS_*`、内部签名 / Cookie 配置；`SMTP_*`、`AUTH_OTP_SECRET`（至少 32 字符）；`OPENAI_API_KEY`、`QWEN_API_KEY`、各 `PLATFORM_*` 模型参数；`PLATFORM_RERANK_BASE_URL` 须填实际区域 / 工作空间地址；`BILLING_*`；`PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`。完整默认值见模块 YAML，部署覆盖见 infra（本地路径 `../infra/README.md`，不随核心源码发布）。
 
 ## 10. 构建、测试和排错
 
@@ -136,7 +136,7 @@ mvn -pl agent-auth-service -am '-Dmaven.compiler.fork=true' package
 java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar
 ```
 
-另开终端运行 `mvn -pl agent-auth-service -am '-Dmaven.compiler.fork=true' test`。测试覆盖账户持久化、禁用并发、注册字段、RBAC、内部边界、验证码、加密、免费 Token、计费调用组和支付校验，见 [测试目录](src/test/java/com/bbb/exercise/agentdemo)。
+另开终端运行 `mvn -pl agent-auth-service -am '-Dmaven.compiler.fork=true' test`。测试覆盖账户持久化、禁用并发、注册字段、RBAC、内部边界、验证码、加密、免费 Token、计费调用组和支付校验，见 测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo`，不随核心源码发布）。
 
 - 401：会话过期、账户禁用、验证码错误或内部签名失败。
 - 403：CSRF、缺少权限、需要超级管理员或再次密码验证。

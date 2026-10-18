@@ -18,7 +18,7 @@ MySQL 保存文档 / 切片 / 任务 / 回执和会话，Milvus 保存向量索�
 | [retrieval](src/main/java/com/bbb/exercise/agentdemo/ragservice/retrieval) | Milvus、BM25、RRF、Rerank 和证据窗口 |
 | [answer](src/main/java/com/bbb/exercise/agentdemo/ragservice/answer) | 基于证据生成、相关性 / 事实支持 / 引用验证 |
 | [persistence](src/main/java/com/bbb/exercise/agentdemo/ragservice/persistence) | 所有权、租约、状态、回执、快照和预算 |
-| [evaluation](evaluation) | 语料、真实观测采集和离线评分 |
+| evaluation（本地路径 `evaluation`，不随核心源码发布） | 语料、真实观测采集和离线评分 |
 
 ## 3. 文档入库如何实现
 
@@ -133,18 +133,18 @@ java -jar agent-rag-service/target/agent-rag-service-0.0.1-SNAPSHOT.jar
 
 ## 8. 验证与评测
 
-另开终端运行 `mvn -pl agent-rag-service -am '-Dmaven.compiler.fork=true' test`。[测试目录](src/test/java/com/bbb/exercise/agentdemo/ragservice) 覆盖解析、切片、混合融合、引用、长中文答案、向量空间、预算和入库恢复。
+另开终端运行 `mvn -pl agent-rag-service -am '-Dmaven.compiler.fork=true' test`。测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/ragservice`，不随核心源码发布） 覆盖解析、切片、混合融合、引用、长中文答案、向量空间、预算和入库恢复。
 
 真实 MySQL / Milvus 测试分别由 `RAG_MYSQL_INTEGRATION=true` 和 `RAG_MILVUS_INTEGRATION=true` 启用，需独立测试库 / collection。启用前检查测试类中的连接参数和清理行为，不指向业务数据库。
 
-[evaluate.py](evaluation/evaluate.py) 验证 12 个文档族、48 个问题（32 校准 / 16 留出），可生成测试 HTML 和离线报告：
+evaluate.py（本地路径 `evaluation/evaluate.py`，不随核心源码发布） 验证 12 个文档族、48 个问题（32 校准 / 16 留出），可生成测试 HTML 和离线报告：
 
 ```powershell
 python agent-rag-service/evaluation/evaluate.py --export-documents data/rag-evaluation/documents --output data/rag-evaluation/corpus-report.json
 python agent-rag-service/evaluation/collect.py --help
 ```
 
-没有真实观测时报告标记 `NOT_EXECUTED`，不能据此声称检索或回答质量已验证。`collect.py` 要求显式 `--allow-paid-models`、会话 token 和模型版本快照，调用真实应用并正常计费。写请求先获取 CSRF token，并保留会话及 CSRF Cookie；失败请求不会自动重发。完整采集流程和本地 HTTP 回归见 [评测指南](evaluation/README.md)。离线重放 RRF 参数不能替代更换候选集后的完整重测，答案质量还需独立人工标注。
+没有真实观测时报告标记 `NOT_EXECUTED`，不能据此声称检索或回答质量已验证。`collect.py` 要求显式 `--allow-paid-models`、会话 token 和模型版本快照，调用真实应用并正常计费。写请求先获取 CSRF token，并保留会话及 CSRF Cookie；失败请求不会自动重发。完整采集流程和本地 HTTP 回归见 评测指南（本地路径 `evaluation/README.md`，不随核心源码发布）。离线重放 RRF 参数不能替代更换候选集后的完整重测，答案质量还需独立人工标注。
 
 ## 9. 排错与扩展
 

@@ -54,4 +54,4 @@ mvn '-Dmaven.compiler.fork=true' verify
 - **单独进入子目录后父 POM 无法解析**：检查相对路径和仓库结构；优先从根目录执行 reactor 构建。
 - **升级框架**：同时核对 Spring Boot、Spring AI、Spring Cloud 和 Alibaba BOM，运行各服务的配置契约测试与架构门禁；不能仅凭依赖下载成功判断兼容。
 
-相关验证见 [agent-architecture-tests](../agent-architecture-tests/README.md) 和 [agent-common 的配置契约测试目录](../agent-common/src/test/java/com/bbb/exercise/agentdemo/common/config)。本文版本描述以当前工作区 POM 为准。
+相关验证见 agent-architecture-tests（本地路径 `../agent-architecture-tests/README.md`，不随核心源码发布） 和 agent-common 的配置契约测试目录（本地路径 `../agent-common/src/test/java/com/bbb/exercise/agentdemo/common/config`，不随核心源码发布）。本文版本描述以当前工作区 POM 为准。

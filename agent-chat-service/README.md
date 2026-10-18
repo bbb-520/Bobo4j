@@ -118,7 +118,7 @@ mvn -pl agent-chat-service -am '-Dmaven.compiler.fork=true' package
 java -jar agent-chat-service/target/agent-chat-service-0.0.1-SNAPSHOT.jar
 ```
 
-另开终端执行 `mvn -pl agent-chat-service -am '-Dmaven.compiler.fork=true' test`。[测试目录](src/test/java/com/bbb/exercise/agentdemo) 覆盖启动配置、持久化、意图路由、内部完成回执和资源边界。
+另开终端执行 `mvn -pl agent-chat-service -am '-Dmaven.compiler.fork=true' test`。测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo`，不随核心源码发布） 覆盖启动配置、持久化、意图路由、内部完成回执和资源边界。
 
 - **有 HTTP 200 但没有回答**：解析 SSE 中的 `ERROR` 和 `STOP`。
 - **历史丢失或串会话**：确认传回了 SESSION_INFO 中的会话 ID，Cookie / 用户和租户保持一致。

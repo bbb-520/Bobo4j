@@ -112,7 +112,7 @@ mvn -pl agent-media-service -am '-Dmaven.compiler.fork=true' package
 java -jar agent-media-service/target/agent-media-service-0.0.1-SNAPSHOT.jar
 ```
 
-另开终端执行 `mvn -pl agent-media-service -am '-Dmaven.compiler.fork=true' test`。[测试目录](src/test/java/com/bbb/exercise/agentdemo) 覆盖 Worker 回执恢复、租约、Provider 契约、内部边界、启动配置和远程 URI 安全。
+另开终端执行 `mvn -pl agent-media-service -am '-Dmaven.compiler.fork=true' test`。测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo`，不随核心源码发布） 覆盖 Worker 回执恢复、租约、Provider 契约、内部边界、启动配置和远程 URI 安全。
 
 - **任务一直 QUEUED**：检查 OSS 配置、Worker enabled、调度日志和其他活跃任务。
 - **资产不可用**：检查 owner、complete、MIME / 大小和 1 天有效期。

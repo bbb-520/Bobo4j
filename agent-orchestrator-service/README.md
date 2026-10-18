@@ -134,6 +134,6 @@ mvn -pl agent-orchestrator-service -am '-Dmaven.compiler.fork=true' package
 java -jar agent-orchestrator-service/target/agent-orchestrator-service-0.0.1-SNAPSHOT.jar
 ```
 
-另开终端执行 `mvn -pl agent-orchestrator-service -am '-Dmaven.compiler.fork=true' test`。测试涵盖持久执行的用户 / 租户归属、乐观版本、决策、预算、步骤回放、未知付费结果恢复、SSE 回放和流式提交；应用启动测试确认旧 REVISE 组件与路由不再注册。真实 InnoDB 并发测试由 `EXECUTION_TEST_MYSQL_URL` 启用，测试使用独立验证数据库，执行前检查 [ExecutionMySqlConcurrencyTest](src/test/java/com/bbb/exercise/agentdemo/orchestrator/execution/ExecutionMySqlConcurrencyTest.java) 的连接和清表行为。
+另开终端执行 `mvn -pl agent-orchestrator-service -am '-Dmaven.compiler.fork=true' test`。测试涵盖持久执行的用户 / 租户归属、乐观版本、决策、预算、步骤回放、未知付费结果恢复、SSE 回放和流式提交；应用启动测试确认旧 REVISE 组件与路由不再注册。真实 InnoDB 并发测试由 `EXECUTION_TEST_MYSQL_URL` 启用，测试使用独立验证数据库，执行前检查 ExecutionMySqlConcurrencyTest（本地路径 `src/test/java/com/bbb/exercise/agentdemo/orchestrator/execution/ExecutionMySqlConcurrencyTest.java`，不随核心源码发布） 的连接和清表行为。
 
 排错优先查询任务 view、步骤回执和最后事件：待核对检查 Auth / RAG callId；重复执行检查 requestId 和参数哈希；持续 NEEDS_INPUT 检查缺少的文档范围、图片授权和无进展指纹；SSE 断线保留游标后重连。新增工具时同步更新白名单、参数校验、预算 / 回执和恢复验证。
