@@ -110,7 +110,7 @@ public final class PermissionPolicy {
             return "content:manage";
         }
 
-        if (under(path, "/api/agent-runs") || under(path, "/api/agent-executions")) {
+        if (under(path, "/api/agent-executions")) {
             return "agent:execute";
         }
 

@@ -23,6 +23,7 @@ __pycache__/
 # 系统
 .DS_Store
 Thumbs.db
+**/%SystemDrive%/
 
 # 日志 / 临时
 *.log
@@ -41,6 +42,10 @@ HELP.md
 **/HELP.md
 .env.*
 !.env.example
+!*.env.example
+!/infra/alertmanager/secrets/
+/infra/alertmanager/secrets/*
+!/infra/alertmanager/secrets/.gitkeep
 *.cookies
 data/
 compose.server.local.yml
@@ -50,24 +55,14 @@ compose.server.local.yml
 /output/
 /tmp/
 /docs/superpowers/
-
-# Private verification, operations, and deployment material
-**/src/test/
-/agent-architecture-tests/
-/ops/
-/infra/
-/scripts/
-/config/
-/docs/
-/.github/
-/.mvn/
-/mvnw
-/mvnw.cmd
-/Dockerfile*
-/*compose*.yml
-/.dockerignore
-**/README.md
-!/README.md
-**/docs/
-**/evaluation/
 /.local-tools/
+/.codex/
+/.agents/
+/.aws/
+
+# Local analysis and production-readiness evidence, retained outside public source.
+/docs/dual-path-alignment.md
+/docs/frontend-image-intent-local-report.md
+/docs/optimization-02-04-release-readiness.md
+/docs/optimization-02-04-report.md
+/docs/optimization-06-report.md

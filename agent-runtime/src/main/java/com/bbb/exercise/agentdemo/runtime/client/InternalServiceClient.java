@@ -178,6 +178,15 @@ public class InternalServiceClient {
                                 type));
     }
 
+    /** Generation is durable in Media; a lost/expired response is recovered with the same requestId. */
+    public Mono<ZineResult> generateZine(String subject, String tenant, ZineRequest body) {
+        String path = "/internal/media/zine/generate";
+        return Mono.defer(() -> exchange(media.post().uri(path)
+                .header("X-Internal-Principal", keys.sign(caller, subject, tenant,
+                        "agent-media-service", "POST " + path)).bodyValue(body),
+                ZineResult.class, Duration.ofSeconds(195)));
+    }
+
     // 3. 媒体读取协议：由 Media 核对归属后返回图片资产信息。
     public Mono<MediaAsset> mediaAsset(String assetId, String subject, String tenant) {
         String path = "/internal/media/assets/" + safe(assetId);
@@ -203,6 +212,10 @@ public class InternalServiceClient {
 
     // 4. HTTP 签名边界：统一构造带目标接口作用域的内部身份签名。
     private <T> Mono<T> exchange(WebClient.RequestHeadersSpec<?> request, Class<T> type) {
+        return exchange(request, type, Duration.ofSeconds(5));
+    }
+
+    private <T> Mono<T> exchange(WebClient.RequestHeadersSpec<?> request, Class<T> type, Duration timeout) {
         return request.exchangeToMono(
                         response -> {
                             if (response.statusCode().is2xxSuccessful()) {
@@ -222,7 +235,7 @@ public class InternalServiceClient {
                                                                     : HttpStatus.valueOf(status),
                                                             "内部服务请求失败")));
                         })
-                .timeout(Duration.ofSeconds(5))
+                .timeout(timeout)
                 .onErrorMap(
                         error -> !(error instanceof ResponseStatusException),
                         error ->
@@ -284,6 +297,18 @@ public class InternalServiceClient {
 
     /** 跨服务图片任务请求，将会话、生成提示词与素材资产关联。 */
     public record CreateMediaJobRequest(String conversationId, String prompt, String assetId) {}
+
+    public record ZineRequest(String requestId, String imageReference, String mode,
+                              String language, String prompt, String rationale) {
+        @Override public String toString() { return "ZineRequest[requestId=" + requestId + "]"; }
+    }
+
+    public record ZineResponse(String mode, String model, String imageUrl, String rationale,
+                               String providerRequestId, Long inputTokens, Long outputTokens) {}
+
+    public record ZineResult(String requestId, ZineResponse result) {}
+
+    public record ZineRequests(java.util.List<String> requestIds) {}
 
     /** 跨服务图片任务状态视图，返回任务进度、成品地址及失败信息。 */
     public record MediaJobView(

@@ -430,6 +430,39 @@ public class RagRepository {
                 version);
     }
 
+    /** Fetch only recalled IDs, in batches of at most 100, intersected with the exact retrieval scope. */
+    public List<Chunk> candidateChunks(Scope scope, Collection<String> candidateIds) {
+        if (candidateIds.isEmpty()) {
+            return List.of();
+        }
+
+        var ids = new ArrayList<>(new LinkedHashSet<>(candidateIds));
+        var versions = new TreeMap<>(scope.versions());
+        String versionPredicate = String.join(" OR ",
+                Collections.nCopies(versions.size(), "(document_id=? AND index_version=?)"));
+        List<Chunk> result = new ArrayList<>();
+
+        for (int start = 0; start < ids.size(); start += 100) {
+            List<String> batch = ids.subList(start, Math.min(start + 100, ids.size()));
+            List<Object> arguments = new ArrayList<>();
+            arguments.add(scope.identity().tenantId());
+            arguments.add(scope.identity().userId());
+            arguments.add(scope.embeddingFingerprint());
+            arguments.addAll(batch);
+            versions.forEach((document, version) -> {
+                arguments.add(document);
+                arguments.add(version);
+            });
+            result.addAll(db.query(
+                    "SELECT * FROM rag_chunk WHERE tenant_id=? AND user_id=? AND embedding_fingerprint=?"
+                            + " AND chunk_id IN (" + String.join(",", Collections.nCopies(batch.size(), "?"))
+                            + ") AND (" + versionPredicate + ") ORDER BY char_start,chunk_id",
+                    (r, n) -> chunk(r), arguments.toArray()));
+        }
+
+        return result;
+    }
+
     private static Chunk chunk(ResultSet r) throws SQLException {
         Integer page = (Integer) r.getObject("page");
         return new Chunk(

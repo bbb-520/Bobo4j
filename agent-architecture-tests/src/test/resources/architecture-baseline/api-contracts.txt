@@ -1,0 +1,15 @@
+# agent-api 契约：FQN|外部引用文件数|状态。
+com.bbb.exercise.agentdemo.api.billing.BillingContracts|17|REFERENCED
+com.bbb.exercise.agentdemo.api.dto.ChatAttachmentRequest|4|REFERENCED
+com.bbb.exercise.agentdemo.api.dto.ChatRequest|2|REFERENCED
+com.bbb.exercise.agentdemo.api.dto.UserIdentityDto|2|REFERENCED
+com.bbb.exercise.agentdemo.api.identity.ChatIdentity|61|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelCapability|16|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelContracts|15|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelFingerprint|3|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelProfile|3|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelPrompts|2|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelProvider|14|REFERENCED
+com.bbb.exercise.agentdemo.api.model.ModelProviderRegistry|8|REFERENCED
+com.bbb.exercise.agentdemo.api.model.TokenBudgetEstimator|5|REFERENCED
+com.bbb.exercise.agentdemo.api.rag.RagContracts|12|REFERENCED

@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly isolated AgentDemo restore verification
+
+[Timer]
+OnCalendar=Sun *-*-* 05:20:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=agentdemo-backup-verify.service
+
+[Install]
+WantedBy=timers.target

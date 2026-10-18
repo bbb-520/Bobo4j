@@ -24,5 +24,6 @@
         <module>agent-rag-service</module>
         <module>agent-media-service</module>
         <module>agent-content-service</module>
+        <module>agent-architecture-tests</module>
     </modules>
 </project>

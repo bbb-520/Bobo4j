@@ -154,14 +154,17 @@ public class HybridRetriever {
                         "retrieval-settings",
                         new RetrievalSettings(denseWeight, minimum),
                         RetrievalSettings.class);
-        // 1.4. 候选融合：按排名融合召回结果，再从会话片段中构造重排序输入。
+        // 1.4. 候选融合：保留 20 条重排候选；按 ID 读取两路召回原文以保留评估 trace。
         List<Hit> fused = fuse(scope, dense, keyword, 20, settings.denseWeight());
         Map<String, Chunk> chunks = new HashMap<>();
+        // recallEvidence includes both 30-hit lanes, including hits outside the fused 20.
+        List<String> recalledIds = java.util.stream.Stream.concat(dense.stream(), keyword.stream())
+                .map(Hit::chunkId)
+                .distinct()
+                .toList();
 
-        for (var e : scope.versions().entrySet()) {
-            for (Chunk c : repository.chunks(who, e.getKey(), e.getValue())) {
-                chunks.put(c.id(), c);
-            }
+        for (Chunk c : repository.candidateChunks(scope, recalledIds)) {
+            chunks.put(c.id(), c);
         }
 
         List<Hit> candidates = fused.stream().filter(h -> chunks.containsKey(h.chunkId())).toList();

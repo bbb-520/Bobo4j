@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cases": [
+    {"id": "resume", "document": "resume", "question": "分析该简历", "expected": "PASS"},
+    {"id": "followup", "document": "resume", "question": "其中涉及文档检索的项目采用了哪些技术？", "conversation": "resume", "expected": "PASS"},
+    {"id": "long-document", "document": "long", "question": "AX42方案的默认重试次数和超时时间是什么？", "expected": "PASS"},
+    {"id": "table", "document": "table", "question": "用表格对比两种方案的重试次数和超时时间。", "expected": "PASS"},
+    {"id": "no-evidence", "document": "table", "question": "这份文档中的项目负责人私人电话号码是多少？", "expected": "NO_SUPPORTED_NUMBER"},
+    {"id": "replay", "replay": "resume", "expected": "IDENTICAL_RECEIPT_AND_USAGE"}
+  ]
+}

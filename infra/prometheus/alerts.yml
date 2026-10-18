@@ -1,0 +1,24 @@
+groups:
+  - name: rag-agent
+    rules:
+      - alert: ModelFallbackFailures
+        expr: sum(rate(ai_model_fallback_total{outcome="failure"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 备用模型持续失败
+      - alert: ToolFailureRatio
+        expr: sum(rate(agent_tool_calls_total{outcome="failure"}[5m])) / clamp_min(sum(rate(agent_tool_calls_total[5m])), 0.001) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 工具调用失败比例超过20%
+      - alert: RagEvaluationUnavailable
+        expr: sum(rate(rag_evaluation_total{outcome="error"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 文档答案验证持续不可用

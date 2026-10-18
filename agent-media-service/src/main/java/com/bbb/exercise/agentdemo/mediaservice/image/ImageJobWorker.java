@@ -86,13 +86,10 @@ public class ImageJobWorker {
     // 1. 图片执行流程：领取租约后，优先恢复供应商回执，再复制结果并结算。
     public void poll() {
         // 1.1. 存储准入：OSS 未就绪时不领取任务，避免占用无法交付结果的作业。
-        if (!storage.isConfigured()) {
-            return;
-        }
-
         // 1.2. 领取与续租：为本次领取生成独立 owner，并在生成期间维持租约。
         String owner = workerId + ":" + UUID.randomUUID();
-        ImageJobService.JobRecord job = jobs.claimNext(owner, leaseDuration);
+        ImageJobService.JobRecord job = storage.isConfigured()
+                ? jobs.claimNext(owner, leaseDuration) : jobs.claimNextZine(owner, leaseDuration);
 
         if (job == null) {
             return;
@@ -117,6 +114,7 @@ public class ImageJobWorker {
                 TimeUnit.MILLISECONDS);
         boolean dispatched = false;
         ImageJobService.Receipt receipt = null;
+        boolean zine = "zine".equals(job.mode());
 
         try {
             // 1.3. 恢复检查：有持久回执时跳过供应商生成，并先检查消费是否已取消或退款。
@@ -136,6 +134,11 @@ public class ImageJobWorker {
 
             // 1.4. 首次生成：按任务供应商快照校验当前模型，再取得计费准入。
             if (receipt == null) {
+                if (jobs.providerDispatchStarted(identity, job.id())) {
+                    // A predecessor may have died after dispatch. Never ask the provider again.
+                    dispatched = true;
+                    throw new IllegalStateException("供应商调用结果不明，禁止重复派发");
+                }
                 ModelProvider provider = ModelProvider.parse(job.provider());
                 AuthModelClient.SelectedModel selected =
                         modelProfiles.resolve(identity, ModelCapability.IMAGE);
@@ -148,8 +151,12 @@ public class ImageJobWorker {
                     throw new IllegalStateException("平台图片凭据未配置");
                 }
 
-                String source = job.sourceObjectKey() == null || job.sourceObjectKey().isBlank()
-                        ? null : storage.signedGetUrl(job.sourceObjectKey());
+                String source = zine ? jobs.zineSource(identity, job.id())
+                        : job.sourceObjectKey() == null || job.sourceObjectKey().isBlank()
+                            ? null : storage.signedGetUrl(job.sourceObjectKey());
+                if (zine && (source == null || source.isBlank())) {
+                    throw new IllegalStateException("Zine 来源图片已过期");
+                }
 
                 try {
                     billing.reserve(identity, job.id(), "IMAGE", job.model())
@@ -169,8 +176,13 @@ public class ImageJobWorker {
                 }
 
                 // 1.4.1. 先登记派发再调用供应商，使异常路径能识别已产生的不明消费。
-                billing.dispatch(identity, job.id()).block(Duration.ofSeconds(6));
+                if (!jobs.beginProviderDispatch(job.id(), owner)) {
+                    jobs.defer(job.id(), owner);
+                    return;
+                }
+                // Includes a lost dispatch acknowledgement: cost is now ambiguous and must not retry.
                 dispatched = true;
+                billing.dispatch(identity, job.id()).block(Duration.ofSeconds(6));
                 var generated =
                         providers
                                 .resolve(provider)
@@ -195,7 +207,7 @@ public class ImageJobWorker {
             }
 
             // 1.5. 交付与结算：复制到固定 OSS 输出位置，再按回执用量结算并标记成功。
-            storage.copyRemoteImageToObject(receipt.imageUrl(), job.outputObjectKey());
+            if (!zine) storage.copyRemoteImageToObject(receipt.imageUrl(), job.outputObjectKey());
             billing.settle(
                             identity,
                             job.id(),

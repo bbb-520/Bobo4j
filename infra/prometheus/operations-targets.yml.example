@@ -1,0 +1,2 @@
+# Copy outside the checkout, configure the exporter, then set OPERATIONS_TARGETS_FILE.
+- targets: [host.docker.internal:19110]

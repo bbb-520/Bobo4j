@@ -225,10 +225,15 @@ public class ImageJobService {
 
     // 2. 任务领取：条件更新领取排队或租约过期任务，减少并发重复处理。
     public JobRecord claimNext(String workerId, Duration leaseDuration) {
-        return admission.locked(() -> claimLocked(workerId, leaseDuration));
+        return admission.locked(() -> claimLocked(workerId, leaseDuration, false));
     }
 
-    private JobRecord claimLocked(String workerId, Duration leaseDuration) {
+    /** Inline Zine jobs do not require object storage. */
+    public JobRecord claimNextZine(String workerId, Duration leaseDuration) {
+        return admission.locked(() -> claimLocked(workerId, leaseDuration, true));
+    }
+
+    private JobRecord claimLocked(String workerId, Duration leaseDuration, boolean zineOnly) {
         jdbc.update(
                 "UPDATE image_job SET status='FAILED',error_message='任务已过期',completed_at=NOW(3),updated_at=NOW(3),lease_owner=NULL,lease_until=NULL "
                         + "WHERE expires_at<=NOW(3) AND result_ready=FALSE AND (status='QUEUED' OR (status='PROCESSING' AND (lease_owner IS NULL OR lease_owner='' OR lease_until IS NULL OR lease_until<=NOW(3))))");
@@ -236,6 +241,7 @@ public class ImageJobService {
                 jdbc.query(
                         "SELECT j.* FROM image_job j WHERE (j.status='QUEUED' OR (j.status='PROCESSING' AND (j.lease_owner IS NULL OR j.lease_owner='' OR j.lease_until IS NULL OR j.lease_until<=NOW(3)))) "
                                 + "AND (j.next_retry_at IS NULL OR j.next_retry_at<=NOW(3)) AND (j.expires_at>NOW(3) OR j.result_ready=TRUE) "
+                                + (zineOnly ? "AND j.mode='zine' " : "")
                                 + "AND NOT EXISTS (SELECT 1 FROM image_job active WHERE active.tenant_id=j.tenant_id AND active.user_id=j.user_id AND active.id<>j.id "
                                 + "AND active.status='PROCESSING' AND active.lease_owner IS NOT NULL AND active.lease_owner<>'' AND active.lease_until>NOW(3)) ORDER BY j.created_at,j.id LIMIT 1",
                         (rs, rowNum) -> map(rs));
@@ -269,6 +275,22 @@ public class ImageJobService {
                         id,
                         owner)
                 == 1;
+    }
+
+    /** Commit before contacting billing/provider: lease takeover can never repeat a paid dispatch. */
+    public boolean beginProviderDispatch(String id, String owner) {
+        return jdbc.update("UPDATE image_job SET provider_dispatch_started=TRUE,updated_at=NOW(3) WHERE id=? AND status='PROCESSING' AND lease_owner=? AND lease_until>NOW(3) AND provider_dispatch_started=FALSE AND result_ready=FALSE",
+                id, owner) == 1;
+    }
+
+    public boolean providerDispatchStarted(ChatIdentity identity, String id) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT provider_dispatch_started FROM image_job WHERE id=? AND tenant_id=? AND user_id=?",
+                Boolean.class, id, identity.tenantId(), identity.userId()));
+    }
+
+    public String zineSource(ChatIdentity identity, String id) {
+        return jdbc.queryForObject("SELECT source_reference FROM zine_media_request WHERE job_id=? AND tenant_id=? AND user_id=?",
+                String.class, id, identity.tenantId(), identity.userId());
     }
 
     // 2.2. 延后恢复：保留已有回执，使后续 Worker 继续复制和结算。
@@ -477,7 +499,7 @@ public class ImageJobService {
         }
 
         return jdbc.query(
-                "SELECT * FROM image_job WHERE tenant_id=? AND user_id=? AND conversation_id=? ORDER BY created_at",
+                "SELECT * FROM image_job WHERE tenant_id=? AND user_id=? AND conversation_id=? AND mode<>'zine' ORDER BY created_at",
                 (rs, rowNum) -> view(identity, map(rs)),
                 identity.tenantId(),
                 identity.userId(),
@@ -488,7 +510,7 @@ public class ImageJobService {
     public List<JobView> archive(ChatIdentity identity, int limit) {
         int safeLimit = Math.max(1, Math.min(50, limit));
         return jdbc.query(
-                "SELECT * FROM image_job WHERE tenant_id=? AND user_id=? AND status='SUCCEEDED' ORDER BY created_at DESC LIMIT "
+                "SELECT * FROM image_job WHERE tenant_id=? AND user_id=? AND status='SUCCEEDED' AND mode<>'zine' ORDER BY created_at DESC LIMIT "
                         + safeLimit,
                 (rs, rowNum) -> view(identity, map(rs)),
                 identity.tenantId(),

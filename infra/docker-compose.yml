@@ -1,0 +1,132 @@
+services:
+  nacos:
+    image: nacos/nacos-server:v3.1.1
+    restart: unless-stopped
+    container_name: agent-nacos
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-agent}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-agent-local}
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:8848:8848"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
+      - nacos-logs:/home/nacos/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8848/nacos/v1/ns/operator/metrics | grep -q 'UP' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  sentinel-dashboard:
+    image: bladex/sentinel-dashboard:1.8.8
+    restart: unless-stopped
+    container_name: agent-sentinel-dashboard
+    environment:
+      JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:8080:8858"
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    container_name: agent-mysql
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USER: ${MYSQL_USERNAME:-agent}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-root-me}
+      TZ: Asia/Shanghai
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis/redis-stack-server:7.4.0-v8
+    restart: unless-stopped
+    container_name: agent-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-redis-me}
+    command: ["redis-stack-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-change-redis-me}"]
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD:-change-redis-me} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  milvus:
+    image: milvusdb/milvus:v2.6.2
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt: [seccomp:unconfined]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - ./milvus/embedded-etcd.yml:/milvus/configs/embedEtcd.yaml:ro
+    ports: ["${INFRA_BIND_ADDRESS:-127.0.0.1}:19530:19530", "${INFRA_BIND_ADDRESS:-127.0.0.1}:9091:9091"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      start_period: 90s
+      timeout: 10s
+      retries: 12
+
+  prometheus:
+    image: prom/prometheus:v3.4.2
+    restart: unless-stopped
+    ports: ["${INFRA_BIND_ADDRESS:-127.0.0.1}:19090:9090"]
+    extra_hosts:
+      - "host.docker.internal:${OPERATIONS_HOST_GATEWAY:-host-gateway}"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus/operations-alerts.yml:/etc/prometheus/operations-alerts.yml:ro
+      - ${OPERATIONS_TARGETS_FILE:-./prometheus/operations-targets.yml}:/etc/prometheus/operations-targets.yml:ro
+      - prometheus-data:/prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.33.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --cluster.listen-address=
+    ports: ["${INFRA_BIND_ADDRESS:-127.0.0.1}:19093:9093"]
+    volumes:
+      - ${ALERTMANAGER_CONFIG_FILE:-./alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+      - ${ALERTMANAGER_SECRETS_DIR:-./alertmanager/secrets}:/run/secrets:ro
+      - alertmanager-data:/alertmanager
+
+  zipkin:
+    image: openzipkin/zipkin:3.5.1
+    restart: unless-stopped
+    ports: ["${INFRA_BIND_ADDRESS:-127.0.0.1}:9411:9411"]
+
+volumes:
+  nacos-data:
+  nacos-logs:
+  mysql-data:
+  redis-data:
+  milvus-data:
+  prometheus-data:
+  alertmanager-data:

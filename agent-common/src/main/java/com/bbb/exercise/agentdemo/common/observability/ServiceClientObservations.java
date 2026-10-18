@@ -22,7 +22,6 @@ public class ServiceClientObservations {
                     "image-jobs",
                     "conversations",
                     "agent-executions",
-                    "agent-runs",
                     "generations");
 
     @Bean

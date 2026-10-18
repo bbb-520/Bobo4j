@@ -1,0 +1,7 @@
+# Compose >=2.20. Each include retains its own build and bind-mount path base.
+name: agentdemo
+include:
+  - path: ./infra/docker-compose.yml
+    env_file: ./.env.example
+  - path: ./docker-compose.app.yml
+    env_file: ./.env.example

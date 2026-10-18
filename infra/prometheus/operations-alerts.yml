@@ -1,0 +1,74 @@
+groups:
+  - name: bobo-operations
+    rules:
+      - alert: BoboServiceUnavailable
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "服务不可用：{{ $labels.instance }}"
+      - alert: BoboCollectionFailed
+        expr: bobo_ops_collection_success == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "运维指标采集失败：{{ $labels.source }}"
+      - alert: BoboContainerMemoryHigh
+        expr: bobo_container_memory_percent > 90
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "容器内存使用超过90%：{{ $labels.container }}"
+      - alert: BoboContainerStopped
+        expr: bobo_container_running == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "容器停止：{{ $labels.container }}"
+      - alert: BoboContainerRestarting
+        expr: increase(bobo_container_restart_count[15m]) > 2
+        labels: {severity: warning}
+        annotations:
+          summary: "容器反复重启：{{ $labels.container }}"
+      - alert: BoboWalletRecoveryOverdue
+        expr: bobo_wallet_active_oldest_seconds > 660
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: 账户请求锁定超过恢复期限，请检查任务与账本
+      - alert: BoboImageQueueOverdue
+        expr: bobo_image_queue_oldest_seconds > 300
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 图片排队超过5分钟
+      - alert: BoboUnknownImageOutcomes
+        expr: bobo_image_unknown_outcomes_24h >= 3
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: 24小时内图片供应商结果不明达到3次；估算敞口并非确认损失
+      - alert: BoboPaymentNeedsReview
+        expr: bobo_payment_manual + bobo_payment_refund_review > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 存在需人工核对的支付或退款
+      - alert: BoboPaymentSyncFailing
+        expr: bobo_payment_expired_error > 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: 已过期订单持续无法核对供应商结果
+      - alert: BoboBackupOverdue
+        expr: time() - bobo_backup_last_success_timestamp_seconds > 93600 or bobo_backup_last_run_success == 0
+        for: 15m
+        labels: {severity: critical}
+        annotations:
+          summary: 加密备份失败或超过26小时未成功
+      - alert: BoboAlertDeliveryFailed
+        expr: increase(alertmanager_notifications_failed_total[15m]) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: 告警通知发送失败，请检查SMTP或收件服务

@@ -44,7 +44,7 @@ public class GatewayRoutes {
                 .route(
                         "orchestrator",
                         r ->
-                                r.path("/api/agent-runs/**", "/api/agent-executions/**")
+                                r.path("/api/agent-executions/**")
                                         .uri(lb(ORCHESTRATOR_SERVICE_ID)))
                 .route("documents", r -> r.path(RAG_PATHS).uri(lb(RAG_SERVICE_ID)))
                 .build();

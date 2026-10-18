@@ -12,6 +12,7 @@ import java.util.*;
 @Service
 public class ModelCallGroupService {
     private final JdbcTemplate jdbc;
+    private final ModelCallGroupRepository repository;
     private final TransactionTemplate tx;
     private final long rate, reserve, groupCap, globalCap;
     private final boolean enabled;
@@ -37,6 +38,7 @@ public class ModelCallGroupService {
         }
 
         this.jdbc = jdbc;
+        this.repository = new ModelCallGroupRepository(jdbc);
         this.tx = tx;
         this.rate = rate;
         this.reserve = reserve;
@@ -62,11 +64,11 @@ public class ModelCallGroupService {
                     try { finish(user,tenant,id); continue; } catch(BillingException incomplete) { /* retain audit and release a stale owner below */ }
                 }
                 tx.executeWithoutResult(t->{
-                    var w=wallet(user);var g=group(user,tenant,id);
+                    var w=repository.wallet(user);var g=repository.group(user,tenant,id);
                     if(jdbc.queryForObject("SELECT COUNT(*) FROM model_call_group WHERE id=? AND status IN ('RESERVED','RUNNING','UNKNOWN','RECEIVED') AND updated_at<TIMESTAMPADD(SECOND,?,CURRENT_TIMESTAMP)",Integer.class,id,-age)!=1)return;
                     long exposure=jdbc.queryForObject("SELECT COALESCE(SUM(reserved_cost_micros),0) FROM model_call_attempt WHERE group_id=? AND status IN ('DISPATCHED','UNKNOWN','RECEIVED')",Long.class,id);
                     exposure=Math.max(exposure,num(g,"risk_micros"));
-                    lockBudget();
+                    repository.lockBudget();
                     jdbc.update("INSERT INTO model_call_recovery(group_id,generation,role,action,reason,estimated_exposure_micros) VALUES(?,?,'GROUP','ABANDONED','EXECUTION_DEADLINE_EXCEEDED',?)",id,num(g,"generation"),exposure);
                     if(id.equals(w.get("active_usage_id")))jdbc.update("UPDATE billing_wallet SET reserved_micros=reserved_micros-?,active_usage_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND active_usage_id=?",num(g,"reserved_micros"),user,id);
                     // This is a conservative platform budget allocation, never a measured user charge.
@@ -88,8 +90,8 @@ public class ModelCallGroupService {
         if(retainForFallback&&!"PRIMARY".equals(role))throw new BillingException(400,"只有主模型可以等待备用模型");
         if(!Set.of("HTTP_400","HTTP_401","HTTP_403","HTTP_404","HTTP_405","HTTP_413","HTTP_422","HTTP_429","CONNECT_FAILED").contains(evidence==null?"":evidence))throw new BillingException(400,"供应商拒绝依据无效");
         return tx.execute(t->{
-            var w=wallet(user);var g=group(user,tenant,id);requireGeneration(g,generation);var a=attemptRow(id,role);
-            if("REJECTED".equals(a.get("status")))return state(g);
+            var w=repository.wallet(user);var g=repository.group(user,tenant,id);requireGeneration(g,generation);var a=repository.attemptRow(id,role);
+            if("REJECTED".equals(a.get("status")))return repository.state(g);
             if(!Set.of("DISPATCHED","UNKNOWN").contains(a.get("status"))||"ABANDONED".equals(g.get("status")))throw new BillingException(409,"调用状态已经变化");
             jdbc.update("INSERT INTO model_call_recovery(group_id,generation,role,action,reason) VALUES(?,?,?,'REJECTED',?)",id,generation,role,evidence);
             jdbc.update("UPDATE model_call_attempt SET status='REJECTED',input_tokens=0,output_tokens=0,cost_micros=0,updated_at=CURRENT_TIMESTAMP WHERE group_id=? AND role=?",id,role);
@@ -98,11 +100,11 @@ public class ModelCallGroupService {
                 jdbc.update("UPDATE model_call_group SET status='RESERVED',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
             } else if(pending==0) {
                 if(id.equals(w.get("active_usage_id")))jdbc.update("UPDATE billing_wallet SET reserved_micros=reserved_micros-?,active_usage_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND active_usage_id=?",num(g,"reserved_micros"),user,id);
-                lockBudget();
+                repository.lockBudget();
                 jdbc.update("UPDATE model_fault_budget SET allocated_micros=allocated_micros-?,unresolved=unresolved-? WHERE id=1",num(g,"risk_micros"),num(g,"risk_attempts"));
                 jdbc.update("UPDATE model_call_group SET status='FAILED_RESOLVED',reserved_micros=0,risk_micros=0,risk_attempts=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
             } else if(g.get("receipt")==null)jdbc.update("UPDATE model_call_group SET status='UNKNOWN',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
-            return state(group(user,tenant,id));
+            return repository.state(repository.group(user,tenant,id));
         });
     }
 
@@ -120,7 +122,7 @@ public class ModelCallGroupService {
         // A durable ticket survives a busy wallet; each batch retains its original aging timestamp.
         var ticket = tx.execute(
                 s -> {
-                    var w = wallet(user);
+                    var w = repository.wallet(user);
 
                     if (num(w, "balance_micros") < 0) {
                         throw new BillingException(402, "账户欠费，请充值");
@@ -147,13 +149,13 @@ public class ModelCallGroupService {
                         checkRequest(rows.getFirst(), user, tenant, r);
                     }
 
-                    return group(user, tenant, r.callId());
+                    return repository.group(user, tenant, r.callId());
                 });
 
         return tx.execute(
                 s -> {
-                    var w = wallet(user);
-                    var g = group(user, tenant, r.callId());
+                    var w = repository.wallet(user);
+                    var g = repository.group(user, tenant, r.callId());
 
                     checkRequest(g, user, tenant, r);
                     // Polls may advance their original ticket, never resurrect a cancelled one.
@@ -181,11 +183,11 @@ public class ModelCallGroupService {
                         jdbc.update(
                                 "UPDATE model_call_group SET status='QUEUED',generation=generation+1,reserved_micros=0,created_at=CURRENT_TIMESTAMP WHERE id=?",
                                 r.callId());
-                        g = group(user, tenant, r.callId());
+                        g = repository.group(user, tenant, r.callId());
                     }
 
                     if (!"QUEUED".equals(g.get("status"))) {
-                        return state(g);
+                        return repository.state(g);
                     }
 
                     if (w.get("active_usage_id") != null) {
@@ -197,14 +199,14 @@ public class ModelCallGroupService {
                         if (!activeGroup.isEmpty()
                                 && List.of("RESERVED", "RUNNING", "RECEIVED")
                                         .contains(activeGroup.getFirst().get("status"))) {
-                            return state(g);
+                            return repository.state(g);
                         }
 
                         throw new BillingException(409, "存在生成中或待对账的消费，请稍后重试");
                     }
 
                     // 1.1. 全局准入：在预算锁内检查队列优先级和并发容量，再冻结钱包额度。
-                    lockBudget();
+                    repository.lockBudget();
                     jdbc.update(
                             "UPDATE model_call_group SET status='CANCELLED' WHERE status='QUEUED' AND created_at<TIMESTAMPADD(MINUTE,-5,CURRENT_TIMESTAMP)");
                     var first =
@@ -219,7 +221,7 @@ public class ModelCallGroupService {
 
                     if (active >= 4
                             || !first.isEmpty() && !r.callId().equals(first.getFirst().get("id"))) {
-                        return state(g);
+                        return repository.state(g);
                     }
 
                     long hold =
@@ -240,7 +242,7 @@ public class ModelCallGroupService {
                             hold,
                             r.callId());
 
-                    return state(group(user, tenant, r.callId()));
+                    return repository.state(repository.group(user, tenant, r.callId()));
                 });
     }
 
@@ -261,9 +263,9 @@ public class ModelCallGroupService {
 
         return tx.execute(
                 s -> {
-                    var w = wallet(user);
-                    var g = group(user, tenant, id);
-                    var old = attemptRows(id, r.role());
+                    var w = repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
+                    var old = repository.attemptRows(id, r.role());
 
                     if (num(w, "balance_micros") < 0) {
                         throw new BillingException(402, "账户欠费，请充值");
@@ -321,7 +323,7 @@ public class ModelCallGroupService {
                     }
 
                     if ("FALLBACK".equals(r.role())) {
-                        var p = attemptRow(id, "PRIMARY");
+                        var p = repository.attemptRow(id, "PRIMARY");
 
                         if (!List.of("UNKNOWN", "SKIPPED", "REJECTED").contains(p.get("status"))) {
                             throw new BillingException(409, "主调用未进入故障对账状态");
@@ -333,7 +335,7 @@ public class ModelCallGroupService {
                             throw new BillingException(400, "备用模型必须为不同配置");
                         }
 
-                        var b = lockBudget();
+                        var b = repository.lockBudget();
                         int pending = "UNKNOWN".equals(p.get("status")) ? 2 : 1;
                         long risk =
                                 Math.addExact(
@@ -385,11 +387,11 @@ public class ModelCallGroupService {
     public void dispatch(String user, String tenant, String id, String role, int generation) {
         tx.executeWithoutResult(
                 s -> {
-                    if (num(wallet(user), "balance_micros") < 0) {
+                    if (num(repository.wallet(user), "balance_micros") < 0) {
                         throw new BillingException(402, "账户欠费，请充值");
                     }
 
-                    var dispatchGroup=group(user,tenant,id);requireGeneration(dispatchGroup,generation);
+                    var dispatchGroup=repository.group(user,tenant,id);requireGeneration(dispatchGroup,generation);
                     if(!Set.of("RESERVED","RUNNING","UNKNOWN").contains(dispatchGroup.get("status")))throw new BillingException(409,"已结束调用不能派发");
 
                     if (jdbc.update(
@@ -414,8 +416,8 @@ public class ModelCallGroupService {
     public void unknown(String user, String tenant, String id, String role, int generation) {
         tx.executeWithoutResult(
                 s -> {
-                    wallet(user);
-                    var current = group(user, tenant, id);
+                    repository.wallet(user);
+                    var current = repository.group(user, tenant, id);
                     requireGeneration(current, generation);
                     if ("ABANDONED".equals(current.get("status"))) return;
                     int changed =
@@ -436,8 +438,8 @@ public class ModelCallGroupService {
     public void skip(String user, String tenant, String id, String role, int generation) {
         tx.executeWithoutResult(
                 s -> {
-                    wallet(user);
-                    requireGeneration(group(user, tenant, id), generation);
+                    repository.wallet(user);
+                    requireGeneration(repository.group(user, tenant, id), generation);
 
                     if (jdbc.update(
                                     "UPDATE model_call_attempt SET status='SKIPPED',updated_at=CURRENT_TIMESTAMP WHERE group_id=? AND role=? AND status='RESERVED'",
@@ -464,11 +466,11 @@ public class ModelCallGroupService {
 
         tx.executeWithoutResult(
                 s -> {
-                    wallet(user);
-                    var g = group(user, tenant, id);
+                    repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
 
                     requireGeneration(g, r.generation());
-                    var a = attemptRow(id, r.role());
+                    var a = repository.attemptRow(id, r.role());
                     long cost =
                             cost(r.inputTokens(), r.outputTokens(), num(g, "rate_per_1k_micros"));
 
@@ -489,7 +491,7 @@ public class ModelCallGroupService {
                     }
 
                     boolean late =
-                            "ABANDONED".equals(g.get("status")) || "PRIMARY".equals(r.role()) && !attemptRows(id, "FALLBACK").isEmpty()
+                            "ABANDONED".equals(g.get("status")) || "PRIMARY".equals(r.role()) && !repository.attemptRows(id, "FALLBACK").isEmpty()
                                     || g.get("receipt") != null;
 
                     jdbc.update(
@@ -516,11 +518,11 @@ public class ModelCallGroupService {
     public GroupState finish(String user, String tenant, String id) {
         return tx.execute(
                 s -> {
-                    var w = wallet(user);
-                    var g = group(user, tenant, id);
+                    var w = repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
 
                     if ("SUCCEEDED".equals(g.get("status"))) {
-                        return state(g);
+                        return repository.state(g);
                     }
                     if("ABANDONED".equals(g.get("status")))throw new BillingException(409,"失联调用已结束，仅保存迟到用量证据");
 
@@ -528,7 +530,7 @@ public class ModelCallGroupService {
                         throw new BillingException(409, "模型结果未知，等待对账");
                     }
 
-                    var a = attemptRow(id, (String) g.get("winning_role"));
+                    var a = repository.attemptRow(id, (String) g.get("winning_role"));
                     long gross = num(a, "cost_micros");
                     long total =
                             TokenAllowance.total(num(a, "input_tokens"), num(a, "output_tokens"));
@@ -566,7 +568,7 @@ public class ModelCallGroupService {
                     if (num(g, "risk_micros") > 0) {
                         long released = num(a, "reserved_cost_micros");
 
-                        lockBudget();
+                        repository.lockBudget();
                         jdbc.update(
                                 "UPDATE model_fault_budget SET allocated_micros=allocated_micros-?,unresolved=unresolved-1 WHERE id=1",
                                 released);
@@ -590,24 +592,24 @@ public class ModelCallGroupService {
                             freeUsed,
                             a.get("provider_request_id"));
 
-                    return state(group(user, tenant, id));
+                    return repository.state(repository.group(user, tenant, id));
                 });
     }
 
     public GroupState state(String user, String tenant, String id) {
-        return state(group(user, tenant, id));
+        return repository.state(repository.group(user, tenant, id));
     }
 
     public String capability(String user, String tenant, String id) {
-        return (String) group(user, tenant, id).get("capability");
+        return (String) repository.group(user, tenant, id).get("capability");
     }
 
     // 4. 调用组取消：依据已派发尝试状态处理钱包和预留。
     public void cancel(String user, String tenant, String id, int generation) {
         tx.executeWithoutResult(
                 s -> {
-                    var w = wallet(user);
-                    var g = group(user, tenant, id);
+                    var w = repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
 
                     requireGeneration(g, generation);
 
@@ -625,7 +627,7 @@ public class ModelCallGroupService {
                         throw new BillingException(409, "已派发调用不能取消计费占用");
                     }
 
-                    lockBudget();
+                    repository.lockBudget();
                     jdbc.update("UPDATE model_fault_budget SET allocated_micros=allocated_micros-?,unresolved=unresolved-? WHERE id=1",num(g,"risk_micros"),num(g,"risk_attempts"));
 
                     if (id.equals(w.get("active_usage_id"))) {
@@ -665,9 +667,9 @@ public class ModelCallGroupService {
 
         tx.executeWithoutResult(
                 s -> {
-                    var w = wallet(user);
-                    var g = group(user, tenant, id);
-                    var b = lockBudget();
+                    var w = repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
+                    var b = repository.lockBudget();
 
                     if ("FAILED_RESOLVED".equals(g.get("status"))) {
                         return;
@@ -768,11 +770,11 @@ public class ModelCallGroupService {
 
         tx.executeWithoutResult(
                 s -> {
-                    wallet(user);
-                    var g = group(user, tenant, id);
-                    var a = attemptRow(id, role);
+                    repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
+                    var a = repository.attemptRow(id, role);
 
-                    lockBudget();
+                    repository.lockBudget();
 
                     if (!jdbc.queryForList(
                                     "SELECT group_id FROM model_call_reconciliation WHERE group_id=? AND generation=? AND role=?",
@@ -832,17 +834,6 @@ public class ModelCallGroupService {
                 });
     }
 
-    private Map<String, Object> wallet(String user) {
-        var rows =
-                jdbc.queryForList("SELECT * FROM billing_wallet WHERE user_id=? FOR UPDATE", user);
-
-        if (rows.isEmpty()) {
-            throw new BillingException(404, "账户不存在");
-        }
-
-        return rows.getFirst();
-    }
-
     /** Late supplier token evidence may settle an archived generation without altering money or its winner. */
     public void reconcileTokens(
             String user,
@@ -866,8 +857,8 @@ public class ModelCallGroupService {
 
         tx.executeWithoutResult(
                 s -> {
-                    wallet(user);
-                    var g = group(user, tenant, id);
+                    repository.wallet(user);
+                    var g = repository.group(user, tenant, id);
 
                     if (generation > num(g, "generation")) {
                         throw new BillingException(409, "调用版本不存在");
@@ -937,76 +928,6 @@ public class ModelCallGroupService {
                                 role);
                     }
                 });
-    }
-
-    private Map<String, Object> group(String user, String tenant, String id) {
-        var rows = jdbc.queryForList("SELECT * FROM model_call_group WHERE id=?", id);
-
-        if (rows.isEmpty()) {
-            throw new BillingException(404, "计费组不存在");
-        }
-
-        var g = rows.getFirst();
-
-        if (!Objects.equals(user, g.get("user_id"))
-                || !Objects.equals(tenant, g.get("tenant_id"))) {
-            throw new BillingException(404, "计费组不存在");
-        }
-
-        return g;
-    }
-
-    private Map<String, Object> lockBudget() {
-        jdbc.queryForList("SELECT * FROM model_fault_budget WHERE id=1 FOR UPDATE");
-        jdbc.update(
-                "UPDATE model_fault_budget SET window_spent_micros=0,window_started=CURRENT_TIMESTAMP WHERE id=1 AND window_started<TIMESTAMPADD(HOUR,-1,CURRENT_TIMESTAMP)");
-
-        return jdbc.queryForList("SELECT * FROM model_fault_budget WHERE id=1").getFirst();
-    }
-
-    private List<Map<String, Object>> attemptRows(String id, String role) {
-        return jdbc.queryForList(
-                "SELECT * FROM model_call_attempt WHERE group_id=? AND role=?", id, role);
-    }
-
-    private Map<String, Object> attemptRow(String id, String role) {
-        var rows = attemptRows(id, role);
-
-        if (rows.isEmpty()) {
-            throw new BillingException(409, "模型尝试不存在");
-        }
-
-        return rows.getFirst();
-    }
-
-    private GroupState state(Map<String, Object> g) {
-        long input = 0, output = 0, unknown = 0;
-        String id = (String) g.get("id");
-        var attempts =
-                jdbc.queryForList(
-                        "SELECT status,planned_token_upper,input_tokens,output_tokens FROM model_call_attempt WHERE group_id=? UNION ALL SELECT status,planned_token_upper,input_tokens,output_tokens FROM model_call_attempt_history WHERE group_id=?",
-                        id,
-                        id);
-
-        for (var a : attempts) {
-            if (a.get("input_tokens") != null && a.get("output_tokens") != null) {
-                input = Math.addExact(input, num(a, "input_tokens"));
-                output = Math.addExact(output, num(a, "output_tokens"));
-            } else if (List.of("DISPATCHED", "UNKNOWN", "FAILED", "RECONCILED")
-                    .contains(a.get("status"))) {
-                unknown = Math.addExact(unknown, num(a, "planned_token_upper"));
-            }
-        }
-
-        return new GroupState(
-                id,
-                (String) g.get("status"),
-                (String) g.get("receipt"),
-                (String) g.get("winning_role"),
-                (int) num(g, "generation"),
-                input,
-                output,
-                unknown);
     }
 
     // 5. 代次保护：拒绝旧代次请求覆盖当前尝试和结算状态。
