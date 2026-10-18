@@ -45,7 +45,7 @@
 - [ModelCapability](src/main/java/com/bbb/exercise/agentdemo/api/model/ModelCapability.java)：定义模型能力，供服务选择合适的模型配置。
 - [ModelProviderRegistry](src/main/java/com/bbb/exercise/agentdemo/api/model/ModelProviderRegistry.java)：校验供应商、能力和型号组合，提供协议端点的默认描述。
 - [ModelFingerprint](src/main/java/com/bbb/exercise/agentdemo/api/model/ModelFingerprint.java)：提供模型空间标识，支持 RAG 判断向量空间是否兼容。
-- [ModelPrompts](src/main/java/com/bbb/exercise/agentdemo/api/model/ModelPrompts.java)：按调用模式组织公共提示约束。
+- [ModelPrompts](src/main/java/com/bbb/exercise/agentdemo/api/model/ModelPrompts.java)：集中公共护栏与静态任务规则；`assemble(mode, supplement, fallback)` 是预算估算和供应商发送共同使用的最终 system 组装入口。`IMAGE_EVIDENCE` 只选择图片证据提取规则，不新增运行时或计费模式。
 - [TokenBudgetEstimator](src/main/java/com/bbb/exercise/agentdemo/api/model/TokenBudgetEstimator.java)：按 UTF-8 字节、协议开销和输出上界保守估算预算；Completion 的输出上界当前为 2048。它不是供应商 tokenizer。
 
 ## 4. 使用与扩展

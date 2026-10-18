@@ -33,7 +33,7 @@ final class ModelProviderTransport {
                   List<VisionImage> images, boolean backup, Duration timeout,
                   Consumer<GenerationEvent> events, AtomicBoolean primaryOutput,
                   boolean replace, long unknownTokens) {
-        String trusted = com.bbb.exercise.agentdemo.api.model.ModelPrompts.forMode(mode, backup) + "\n" + system;
+        String trusted = ModelPrompts.assemble(mode, system, backup);
         Object content = user;
 
         if (!images.isEmpty()) {

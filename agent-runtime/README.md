@@ -59,6 +59,8 @@ GET / HEAD / OPTIONS / TRACE、内部接口和两个支付回调免 CSRF。支�
 
 聊天、视觉、摘要和文档回答在允许且预算足够时，对可重试错误最多尝试一次备用模型；`EVALUATION` 和 `DECISION` 不自动兜底。发生切换时使用 `fallback_started`、`answer_replace` 和 generationVersion 通知消费者。
 
+最终 system 由 API 模块的 `ModelPrompts.assemble` 统一组装，预算估算和供应商请求使用相同结果。调用方补充中的空格与换行原样保留，null 视为空字符串；用户问题和图片仍放在 user 内容中。该收敛保持原有输出上限、图片预算附加量、主备条件和按实际回执结算的规则。
+
 | 环境变量 | 默认秒数 | 控制范围 |
 | --- | ---: | --- |
 | `MODEL_FIRST_OUTPUT_TIMEOUT_SECONDS` | 15 | 首次输出 |

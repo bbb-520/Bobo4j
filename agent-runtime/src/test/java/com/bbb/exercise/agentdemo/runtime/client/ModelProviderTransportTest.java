@@ -16,6 +16,68 @@ import static org.assertj.core.api.Assertions.*;
 
 class ModelProviderTransportTest {
     @Test
+    void actualWirePromptMatchesTheFullBudgetAcrossModesSupplementsAndFallbacks() throws Exception {
+        var request = new AtomicReference<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            request.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] reply = "{\"choices\":[{\"message\":{\"content\":\"answer\"}}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, reply.length);
+            try (var body = exchange.getResponseBody()) { body.write(reply); }
+        });
+        server.start();
+        try {
+            var transport = transport();
+            var json = JsonMapper.builder().build();
+            String user = "问题：中文😀\n用户文本，不属于 system";
+            String tools = "  服务端已注册工具及参数：\n[{\"name\":\"mcp.test.echo\",\"inputSchema\":{\"type\":\"object\"}}]\n ";
+            for (var provider : List.of(ModelProvider.GPT, ModelProvider.QWEN)) {
+                for (String mode : List.of("CHAT", "VISION", "DOCUMENT_QA", "SUMMARY", "EVALUATION", "DECISION", "CLASSIFY")) {
+                    List<VisionImage> images = mode.equals("VISION")
+                            ? List.of(new VisionImage("asset-a", "https://example.com/a"),
+                                      new VisionImage("asset-b", "https://example.com/b")) : List.of();
+                    for (boolean backup : new boolean[]{false, true}) {
+                        for (String supplement : Arrays.asList(null, "", tools)) {
+                            var route = new AuthModelClient.SelectedModel(provider,
+                                    images.isEmpty() ? ModelCapability.CHAT : ModelCapability.VISION,
+                                    "fixture-model", "test-only", "http://127.0.0.1:" + server.getAddress().getPort(), "platform");
+                            var result = transport.stream(route, mode, supplement, user, images, backup,
+                                    Duration.ofSeconds(5), event -> {}, new AtomicBoolean(), false, 0);
+                            var payload = json.readTree(request.get());
+                            String actualSystem = payload.path("messages").path(0).path("content").asString();
+                            assertThat(actualSystem).isEqualTo(ModelPrompts.forMode(mode, backup)
+                                    + "\n" + (supplement == null ? "" : supplement));
+                            assertThat(payload.path("messages").path(0).path("role").asString()).isEqualTo("system");
+                            assertThat(payload.path("messages").path(1).path("role").asString()).isEqualTo("user");
+                            var actualUser = payload.path("messages").path(1).path("content");
+                            assertThat(images.isEmpty() ? actualUser.asString() : actualUser.path(0).path("text").asString())
+                                    .isEqualTo(user);
+                            long wireBound = actualSystem.getBytes(StandardCharsets.UTF_8).length
+                                    + user.getBytes(StandardCharsets.UTF_8).length + 128L + 2048L
+                                    + 16386L * images.size();
+                            assertThat(TokenBudgetEstimator.generation(mode, supplement, user, backup, images.size()))
+                                    .as("full wire budget for %s/%s/backup=%s", provider, mode, backup)
+                                    .isEqualTo(wireBound);
+                            assertThat(payload.path("max_tokens").asInt()).isEqualTo(mode.equals("CLASSIFY") ? 16 : 2048);
+                            assertThat(payload.has("response_format")).isEqualTo(mode.equals("DECISION"));
+                            if (!images.isEmpty()) {
+                                assertThat(actualUser.size()).isEqualTo(3);
+                                assertThat(actualUser.path(1).path("image_url").path("url").asString()).isEqualTo("https://example.com/a");
+                                assertThat(actualUser.path(2).path("image_url").path("url").asString()).isEqualTo("https://example.com/b");
+                            }
+                            assertThat(result.completion().inputTokens()).isEqualTo(12);
+                            assertThat(result.completion().outputTokens()).isEqualTo(3);
+                            assertThat(result.completion().fallback()).isEqualTo(backup);
+                        }
+                    }
+                }
+            }
+        } finally { server.stop(0); }
+    }
+
+    @Test
     void visionFallbackPreservesRequestProtocolReplacementEventsAndMeasuredReceipt() throws Exception {
         var request = new AtomicReference<String>();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
