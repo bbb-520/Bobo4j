@@ -104,7 +104,8 @@ public class ChatController {
                                                                                 safe.getQuestion(),
                                                                                 session,
                                                                                 safe
-                                                                                        .getAttachments()))))
+                                                                                        .getAttachments(),
+                                                                                Boolean.TRUE.equals(safe.getImageGenerationConfirmed())))))
                 .doOnError(
                         error ->
                                 log.warn(

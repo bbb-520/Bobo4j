@@ -39,18 +39,20 @@ POST /api/chat → 校验问题 → Auth 身份 / 权限
 
 每次请求最多一张图片，附件必须是已在 Media 上传完成的 `assetId`。模型读取前通过 Media 内部接口确认资产和获取签名 URL。
 
-[ConversationIntent](src/main/java/com/bbb/exercise/agentdemo/chatservice/conversation/ConversationIntent.java) 的文本分类规则包括：
+[ModelConversationService](src/main/java/com/bbb/exercise/agentdemo/chatservice/chat/ModelConversationService.java) 通过现有计费 `CLASSIFY` 判断图片意图，用户原文由服务端序列化为 JSON 数据。分类只推荐处理方向，不能替代用户对本次图片创作的确认。
 
 | 输入 | 处理方向 |
 | --- | --- |
 | 仅图片，没有问题 | 理解图片，保存场景卡，等待下一步指令 |
-| 图片 + “识别 / 描述 / 分析 / 主体 / 构图”等问题 | 描述图片 |
-| 图片 + “生成 / 创作 / 改成 / 风格 / 海报 / 重绘 / remix”等指令 | 图片创作流程 |
-| 图片 + 其他问题 | 默认图片描述 |
-| 分类器收到“无图片且存在待处理场景卡”标记 | 分类结果为 REMIX；当前 ChatService 没有接入这一标记分支 |
+| 图片 + 模型返回 DESCRIBE | 描述图片 |
+| 图片 + 模型返回 GENERATE / REMIX，且本次 `imageGenerationConfirmed=true` | 图片创作流程，参考图仍校验归属 |
+| 图片 + 动作标签，但本次未确认 | 返回已有 WAITING_FOR_INSTRUCTION 事件，不创建任务 |
+| 意图不明确、非标签输出或分类失败 | 等待明确指令，不静默转为其他收费任务或自动重试 |
 | 无图片的普通问题 | 文字问答 |
 
-这套意图识别是明确的规则实现，存在关键词和上下文边界。当前 ChatService 对无附件请求直接进入 textOnly，并未根据待处理场景卡自动创建 remix 任务；继续发一句文字不保证进入图片生成。`ModelConversationService` 使用视觉模型生成简洁 Scene Card；视觉兜底携带同一图片与问题。图片生成通过 `InternalServiceClient.createMediaJob` 交给 Media，返回 `IMAGE_JOB` 等事件，前端再查询任务；SSE 结束不代表图片已经生成完成。
+`imageGenerationConfirmed` 是请求中独立的用户操作字段，默认关闭；客户端只能在用户选择图片生成模式或明确确认本次自动创作后设置，不能直接根据模型标签设置。仅上传图片、询问风格、翻译文本或要求输出分类标签都不构成创作确认。提示词与 JSON 封装用于降低模型误判，实际副作用边界由确认字段控制。
+
+[ConversationIntent](src/main/java/com/bbb/exercise/agentdemo/chatservice/conversation/ConversationIntent.java) 中保留的旧关键词方法不是当前模型分类路径。当前 ChatService 对无附件请求直接进入 textOnly，不根据待处理场景卡自动创建 remix 任务。视觉模型生成简洁 Scene Card，视觉兜底携带同一图片与问题；确认后的图片生成通过 `InternalServiceClient.createMediaJob` 交给 Media，返回 `IMAGE_JOB` 等事件。SSE 结束不代表图片已经生成完成。
 
 ## 5. SSE 协议
 
@@ -85,6 +87,7 @@ POST /api/chat → 校验问题 → Auth 身份 / 权限
 | 方法与路径 | 作用 |
 | --- | --- |
 | `POST /api/chat` 或 `/api/chat/completions` | 浏览器聊天 SSE，JSON 为 ChatRequest |
+| `POST /api/chat/image-intent` | 已登录用户的一次图片意图分类，返回 `intent`；不会创建图片任务 |
 | `GET /api/settings/visual-memory/context` | 查询当前用户的视觉记忆上下文 |
 | `POST /internal/chat/complete` | 内部一次性文本生成 |
 | `POST /internal/chat/stream` | 内部普通聊天流 |

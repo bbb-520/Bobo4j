@@ -33,7 +33,11 @@ complete 校验的是 OSS 元数据和声明，不应把这一步描述为完整
 
 ## 4. 生成任务和状态
 
-任务由 Chat / Orchestrator 的 `/internal/media/image-jobs` 创建，参数包括 conversationId、prompt 和可选 assetId。Service 固定任务的供应商、型号、来源 / 输出 object key，校验 prompt 和所有权，并利用数据库约束减少同会话活跃任务的重复提交。
+任务可由浏览器的 `POST /api/image-jobs` 或 Chat / Orchestrator 的 `/internal/media/image-jobs` 创建。公开接口要求稳定 requestId、conversationId、prompt、可选参考图附件，以及独立的本次用户确认 `imageGenerationConfirmed=true`；缺失、null 或 false 时返回 400，在解析收费模型、查询钱包与创建任务前拒绝。
+
+客户端只能在用户选择图片生成模式或明确确认本次自动创作后发送确认字段，不能把模型分类标签当成确认。旧客户端需升级确认流程；已受理任务仍可通过原 requestId 查询，不需要重新创建。内部调用由 Chat 的本次确认和 Orchestrator 既有 `allowImageGeneration` 分别约束，不能由模型自行增加授权。
+
+Service 固定任务的供应商、型号、来源 / 输出 object key，校验 prompt 和所有权，并利用数据库约束减少同会话活跃任务的重复提交。
 
 ```text
 QUEUED → PROCESSING → 保存供应商回执 → 复制结果到 OSS → 结算 → SUCCEEDED
@@ -73,6 +77,8 @@ OSS 操作复用 [Runtime 的 OssStorageService](../agent-runtime/README.md)。�
 | --- | --- |
 | `POST /api/image-assets/upload-policy` | 获取直传策略 |
 | `POST /api/image-assets/{assetId}/complete` | 确认上传完成 |
+| `POST /api/image-jobs` | 明确确认后创建任务，携带 `imageGenerationConfirmed=true` |
+| `GET /api/image-jobs/by-request/{requestId}` | 当前用户按原请求号查询已受理任务 |
 | `GET /api/image-jobs/{jobId}` | 查询任务和临时结果 URL |
 | `GET /api/image-jobs/{jobId}/download` | 获取成功任务下载结果 |
 | `GET /api/image-jobs` | 按会话查询任务，参数见 Controller |
@@ -81,7 +87,7 @@ OSS 操作复用 [Runtime 的 OssStorageService](../agent-runtime/README.md)。�
 | `POST /internal/media/image-jobs` | 服务间创建任务 |
 | `GET /internal/media/image-jobs/{jobId}/publish-source` | 已成功任务的可发布源 |
 
-浏览器写请求需要 Cookie、CSRF 和 `media:generate`。没有公开的 `POST /api/image-jobs` 创建接口，应走聊天 / Agent 创作流程或受信内部调用。
+浏览器写请求仍需要 Cookie、CSRF 和相应权限；新增确认字段不代替身份、权限、资产归属或计费检查。相同请求号的幂等与未知供应商消费不重试语义保持不变。
 
 ## 8. 数据和配置
 

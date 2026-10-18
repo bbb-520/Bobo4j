@@ -16,6 +16,8 @@ import java.util.List;
 @Service
 @lombok.extern.slf4j.Slf4j
 public class ModelConversationService {
+    private static final tools.jackson.databind.json.JsonMapper CLASSIFICATION_JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
     private static final String VISION_INSTRUCTION =
             "请分析这张图片，返回简洁的 Scene Card：" + "主体、构图、主色、材质和情绪。不要输出思维链，不要编造图片中没有的内容。";
 
@@ -65,7 +67,7 @@ public class ModelConversationService {
         if (question == null || question.isBlank()) return Mono.just(waiting);
         return Mono.fromCallable(() -> {
                     var result = models.complete(identity, "intent:" + java.util.UUID.randomUUID(),
-                            "CLASSIFY", "", question, false);
+                            "CLASSIFY", "", CLASSIFICATION_JSON.writeValueAsString(java.util.Map.of("imageRequest", question)), false);
                     return switch (result.text().strip()) {
                         case "GENERATE" -> com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.GENERATE;
                         case "REMIX" -> com.bbb.exercise.agentdemo.chatservice.conversation.ConversationIntent.REMIX;

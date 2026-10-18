@@ -31,9 +31,15 @@ public class ImageJobController {
     public Mono<ResponseEntity<ImageJobService.JobView>> create(
             @RequestBody CreateRequest request, ServerWebExchange exchange) {
         return identityResolver.resolveRequired(exchange)
-                .flatMap(identity -> Mono.fromCallable(() -> ResponseEntity.accepted().body(
+                .flatMap(identity -> {
+                    if (!Boolean.TRUE.equals(request.imageGenerationConfirmed())) {
+                        return Mono.error(new org.springframework.web.server.ResponseStatusException(
+                                HttpStatus.BAD_REQUEST, "请先明确确认本次图片生成或编辑操作"));
+                    }
+                    return Mono.fromCallable(() -> ResponseEntity.accepted().body(
                         jobs.create(identity, request.requestId(), request.conversationId(),
-                                request.prompt(), request.attachments()))))
+                                request.prompt(), request.attachments())));
+                })
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -46,7 +52,11 @@ public class ImageJobController {
     }
 
     public record CreateRequest(String requestId, String conversationId, String prompt,
-                                List<ChatAttachmentRequest> attachments) {}
+                                List<ChatAttachmentRequest> attachments, Boolean imageGenerationConfirmed) {
+        public CreateRequest(String requestId, String conversationId, String prompt, List<ChatAttachmentRequest> attachments) {
+            this(requestId, conversationId, prompt, attachments, false);
+        }
+    }
 
     // 1. 任务查询：任务状态和下载入口均使用当前认证身份核对归属。
     @GetMapping("/{jobId}")

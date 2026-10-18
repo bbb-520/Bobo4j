@@ -45,6 +45,12 @@ public class ChatService {
     // 2. 单轮分流：按输入和图片意图选择文字回答、图片识别或异步图片生成。
     public Flux<ChatEventVO> chat(
             String question, ConversationSession session, List<ChatAttachmentRequest> attachments) {
+        return chat(question, session, attachments, false);
+    }
+
+    public Flux<ChatEventVO> chat(
+            String question, ConversationSession session, List<ChatAttachmentRequest> attachments,
+            boolean imageGenerationConfirmed) {
         Instant receivedAt = Instant.now();
 
         if (session == null) {
@@ -90,6 +96,10 @@ public class ChatService {
         return modelConversation.classifyImageIntent(session.identity(), attachment, question)
                 .flatMapMany(intent -> {
                     if (intent == ConversationIntent.GENERATE) {
+                        if (!imageGenerationConfirmed) {
+                            return Flux.just(sessionInfoEvent(session.conversationId(), session.created()),
+                                    waitingEvent("图片创作需要本次明确确认，请选择图片生成模式或确认本次生成、编辑操作。"), stopEvent());
+                        }
                         return generateImage(question, session, attachment, receivedAt);
                     }
                     if (intent == ConversationIntent.DESCRIBE || question == null || question.isBlank()) {

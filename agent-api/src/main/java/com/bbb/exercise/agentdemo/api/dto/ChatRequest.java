@@ -14,4 +14,10 @@ public class ChatRequest {
     private String question;
     private String sessionId;
     private List<ChatAttachmentRequest> attachments;
+    /** Per-request user choice from the UI/API, never inferred from a model verdict. */
+    private Boolean imageGenerationConfirmed;
+
+    public ChatRequest(String question, String sessionId, List<ChatAttachmentRequest> attachments) {
+        this(question, sessionId, attachments, false);
+    }
 }
