@@ -30,7 +30,6 @@ management:
   endpoint.health.probes.enabled: true
 app:
   security:
-    api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:}
     internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
     internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
     anonymous-cookie-name: ${ANONYMOUS_COOKIE_NAME:bbb_agent_anonymous_id}

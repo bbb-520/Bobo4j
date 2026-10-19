@@ -17,9 +17,7 @@ import com.bbb.exercise.agentdemo.api.model.ModelProviderRegistry;
             // 迁到 com.bbb.exercise.agentdemo.runtime.web；这里补扫描是为了保持响应头不变。
             "com.bbb.exercise.agentdemo.runtime.web",
             "com.bbb.exercise.agentdemo.auth",
-            "com.bbb.exercise.agentdemo.runtime.config",
-            "com.bbb.exercise.agentdemo.auth.identity",
-            "com.bbb.exercise.agentdemo.auth.model"
+            "com.bbb.exercise.agentdemo.runtime.config"
         })
 @ConfigurationPropertiesScan(
         basePackages = {
@@ -28,7 +26,7 @@ import com.bbb.exercise.agentdemo.api.model.ModelProviderRegistry;
         })
 @EnableDiscoveryClient
 @org.springframework.scheduling.annotation.EnableScheduling
-@MapperScan({"com.bbb.exercise.agentdemo.auth.mapper", "com.bbb.exercise.agentdemo.auth.model"})
+@MapperScan("com.bbb.exercise.agentdemo.auth.mapper")
 public class AuthServiceApplication {
     @Bean
     ModelProviderRegistry modelProviderRegistry() {

@@ -33,7 +33,7 @@ POST /api/chat → 校验问题 → Auth 身份 / 权限
 
 `ModelConversationService` 将已提交历史和当前问题组织为模型输入，通过 `ModelCallClient.completeStreaming` 获取事件。同步 / 阻塞工作调度到 `boundedElastic`，避免阻塞 WebFlux 网络线程。客户端取消时会处置相应工作订阅，但已派发供应商调用的费用仍取决于回执和对账结果。
 
-会话历史由 `ConversationPersistenceService` 管理；普通文本当前读取的是持久化的已提交历史。视觉记忆也存储在 MySQL，`VisionMemoryService` 查询当前用户最近最多 100 条活跃记录，按词汇重合与时间加权排序并选择最多 8 条上下文，不使用 Milvus 向量召回。Redis 聊天记忆配置和相关依赖仍存在，应区分数据库历史路径、视觉记忆以及 Spring AI Redis 仓库，不应把所有会话状态都理解成仅存 Redis。
+会话历史由 `ConversationPersistenceService` 管理；普通文本当前读取的是持久化的已提交历史。视觉记忆也存储在 MySQL，`VisionMemoryService` 查询当前用户最近最多 100 条活跃记录，按词汇重合与时间加权排序并选择最多 8 条上下文，不使用 Milvus 向量召回。旧 Spring AI 聊天工厂、Redis ChatMemory 自动配置及专属依赖已移除；模型请求统一经过 Runtime，保留 Spring AI 模型接口供视觉向量适配使用。Redis 仍供共享模型熔断等运行时能力使用。
 
 ## 4. 图片理解和生成意图
 
@@ -52,7 +52,7 @@ POST /api/chat → 校验问题 → Auth 身份 / 权限
 
 `imageGenerationConfirmed` 是请求中独立的用户操作字段，默认关闭；客户端只能在用户选择图片生成模式或明确确认本次自动创作后设置，不能直接根据模型标签设置。仅上传图片、询问风格、翻译文本或要求输出分类标签都不构成创作确认。提示词与 JSON 封装用于降低模型误判，实际副作用边界由确认字段控制。
 
-[ConversationIntent](src/main/java/com/bbb/exercise/agentdemo/chatservice/conversation/ConversationIntent.java) 中保留的旧关键词方法不是当前模型分类路径。当前 ChatService 对无附件请求直接进入 textOnly，不根据待处理场景卡自动创建 remix 任务。视觉模型生成简洁 Scene Card，视觉兜底携带同一图片与问题；确认后的图片生成通过 `InternalServiceClient.createMediaJob` 交给 Media，返回 `IMAGE_JOB` 等事件。SSE 结束不代表图片已经生成完成。
+[ConversationIntent](src/main/java/com/bbb/exercise/agentdemo/chatservice/conversation/ConversationIntent.java) 只定义分类标签，旧关键词方法已移除。当前 ChatService 对无附件请求直接进入 textOnly，不根据待处理场景卡自动创建 remix 任务。视觉模型生成简洁 Scene Card，视觉兜底携带同一图片与问题；确认后的图片生成通过 `InternalServiceClient.createMediaJob` 交给 Media，返回 `IMAGE_JOB` 等事件。SSE 结束不代表图片已经生成完成。
 
 ## 5. SSE 协议
 

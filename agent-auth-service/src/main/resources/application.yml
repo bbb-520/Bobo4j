@@ -53,23 +53,19 @@ management:
   endpoint.health.probes.enabled: true
 app:
   platform:
-    provider: ${PLATFORM_PROVIDER:GPT}
-    api-key: ${OPENAI_API_KEY:${PLATFORM_API_KEY:}}
-    chat-model: ${PLATFORM_CHAT_MODEL:gpt-4.1}
-    vision-model: ${PLATFORM_VISION_MODEL:gpt-4.1}
+    chat-model: ${PLATFORM_CHAT_MODEL:qwen-plus}
+    vision-model: ${PLATFORM_VISION_MODEL:qwen-vl-max}
     image-model: ${PLATFORM_IMAGE_MODEL:qwen-image-3.0-pro}
     embedding-model: ${PLATFORM_EMBEDDING_MODEL:text-embedding-v4}
     rerank-model: ${PLATFORM_RERANK_MODEL:qwen3-rerank}
-    evaluation-model: ${PLATFORM_EVALUATION_MODEL:gpt-4.1}
-    fallback-model: ${PLATFORM_FALLBACK_MODEL:qwen-plus}
-    base-url: ${PLATFORM_BASE_URL:https://api.openai.com/v1}
+    evaluation-model: ${PLATFORM_EVALUATION_MODEL:qwen-plus}
+    fallback-model: ${PLATFORM_FALLBACK_MODEL:qwen-turbo}
     qwen-api-key: ${QWEN_API_KEY:${PLATFORM_QWEN_API_KEY:}}
     qwen-base-url: ${PLATFORM_QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
     vision-fallback-model: ${PLATFORM_VISION_FALLBACK_MODEL:qwen-vl-plus}
     # qwen3-rerank requires the operator's regional workspace URL; no guessed universal endpoint.
     rerank-base-url: ${PLATFORM_RERANK_BASE_URL:}
-    fallback-provider: ${PLATFORM_FALLBACK_PROVIDER:QWEN}
-    fallback-base-url: ${PLATFORM_FALLBACK_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    fallback-base-url: ${PLATFORM_FALLBACK_BASE_URL:${PLATFORM_QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
     fallback-api-key: ${PLATFORM_FALLBACK_API_KEY:}
   email:
     from: ${SMTP_FROM:}
@@ -100,11 +96,6 @@ app:
       private-key-path: ${ALIPAY_PRIVATE_KEY_PATH:}
       public-key-path: ${ALIPAY_PUBLIC_KEY_PATH:}
   security:
-    # Server-side envelope key; this is not the user provider key.
-    # The local default keeps startup independent from provider credentials; override it in production.
-    api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
-    api-key-encryption-keys: ${API_KEY_ENCRYPTION_KEYS:}
-    api-key-active-key-id: ${API_KEY_ACTIVE_KEY_ID:current}
     internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
     internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
     anonymous-cookie-name: ${ANONYMOUS_COOKIE_NAME:bbb_agent_anonymous_id}

@@ -62,11 +62,11 @@ java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar --rbac
 
 ## 5. 平台模型配置
 
-`PlatformModels` 按聊天、视觉、图片生成、Embedding、Rerank、Evaluation 和 Fallback 能力选择配置。默认 ChatGPT `gpt-4.1` 用于聊天 / 视觉 / 校验，千问用于图片、向量、重排序和备用模型；具体以 [application.yml](src/main/resources/application.yml) 和实际环境配置为准。
+`PlatformModels` 按聊天、视觉、图片生成、Embedding、Rerank、Evaluation 和 Fallback 能力选择千问配置；具体以 [application.yml](src/main/resources/application.yml) 和实际环境配置为准。
 
-当前采用**平台统一配置凭据**。`UserApiKeyService` 和 `ModelProfileService` 保留查询 / 兼容入口，但个人上传、删除 Key 或保存模型的写入口返回 `410`。历史 `user_api_key`、`user_model_profile` 表和 [ApiKeyCrypto](src/main/java/com/bbb/exercise/agentdemo/auth/ApiKeyCrypto.java) 仍存在，不能据此认为个人自带模型功能当前开放。
+当前采用**平台统一配置凭据**。`UserApiKeyService` 和 `ModelProfileService` 保留查询 / 兼容入口，个人上传、删除 Key 或保存模型的写入口继续返回 `410`。历史 `user_api_key`、`user_model_profile` 表保留，当前未开放个人自带模型写入。
 
-`ApiKeyCrypto` 使用带 key ID 的 AES-256-GCM envelope，支持旧版本解密与活动密钥写入。该加密密钥、内部签名密钥和供应商 API Key 是三种不同用途的配置。
+平台托管文本与评估默认 `qwen-plus`，视觉默认 `qwen-vl-max`；备用分别为 `qwen-turbo` 和 `qwen-vl-plus`。全部使用千问凭据，旧平台 GPT Provider、通用密钥及地址配置已移除；供应商兼容目录继续保留。详见根 README 的模型配置表。闲置的个人凭据加密组件及个人模型表映射已删除，既有数据库迁移和历史数据保留。
 
 ## 6. 钱包、调用组和对账
 
@@ -126,7 +126,7 @@ generation 和参数哈希阻止旧尝试或改参请求覆盖现有调用。免
 | 钱包 / 充值 | `billing_wallet`、`model_usage`、`payment_order`、`payment_refund`、`usage_reconciliation` |
 | 调用组 | `model_call_group`、`model_call_attempt`、尝试历史、故障预算和对账表 |
 
-关键环境配置包括：`MYSQL_*`、`NACOS_*`、内部签名 / Cookie 配置；`SMTP_*`、`AUTH_OTP_SECRET`（至少 32 字符）；`OPENAI_API_KEY`、`QWEN_API_KEY`、各 `PLATFORM_*` 模型参数；`PLATFORM_RERANK_BASE_URL` 须填实际区域 / 工作空间地址；`BILLING_*`；`PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`。完整默认值见模块 YAML，部署覆盖见 infra（本地路径 `../infra/README.md`，不随核心源码发布）。
+关键环境配置包括：`MYSQL_*`、`NACOS_*`、内部签名 / Cookie 配置；`SMTP_*`、`AUTH_OTP_SECRET`（至少 32 字符）；`QWEN_API_KEY`、各 `PLATFORM_*` 模型参数；`PLATFORM_RERANK_BASE_URL` 须填实际区域 / 工作空间地址；`BILLING_*`；`PAYMENT_NOTIFY_BASE_URL`、`ALIPAY_*`。完整默认值见模块 YAML，部署覆盖见 infra（本地路径 `../infra/README.md`，不随核心源码发布）。
 
 ## 10. 构建、测试和排错
 
@@ -136,7 +136,7 @@ mvn -pl agent-auth-service -am '-Dmaven.compiler.fork=true' package
 java -jar agent-auth-service/target/agent-auth-service-0.0.1-SNAPSHOT.jar
 ```
 
-另开终端运行 `mvn -pl agent-auth-service -am '-Dmaven.compiler.fork=true' test`。测试覆盖账户持久化、禁用并发、注册字段、RBAC、内部边界、验证码、加密、免费 Token、计费调用组和支付校验，见 测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo`，不随核心源码发布）。
+另开终端运行 `mvn -pl agent-auth-service -am '-Dmaven.compiler.fork=true' test`。测试覆盖账户持久化、禁用并发、注册字段、RBAC、内部边界、验证码、千问模型路由、免费 Token、计费调用组和支付校验，见 测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo`，不随核心源码发布）。
 
 - 401：会话过期、账户禁用、验证码错误或内部签名失败。
 - 403：CSRF、缺少权限、需要超级管理员或再次密码验证。

@@ -2,7 +2,7 @@
 
 ## 1. 模块作用
 
-本模块提供没有业务归属的公共能力：API 响应值、请求 ID、内部服务身份签名、密钥轮换和 HTTP 观测约定。它是普通库，没有业务 Controller、数据库实体、迁移脚本或独立端口。
+本模块提供没有业务归属的公共能力：请求 ID、内部服务身份签名、密钥轮换和 HTTP 观测约定。它是普通库，没有业务 Controller、数据库实体、迁移脚本或独立端口。
 
 与 [agent-api](../agent-api/README.md) 的区别是本模块提供通用实现；与 [agent-runtime](../agent-runtime/README.md) 的区别是本模块不承载 OSS、浏览器授权、模型调用等应用运行时组件。Gateway 依赖 Common，而无需引入完整 Runtime。
 
@@ -10,13 +10,12 @@
 
 | 位置 | 主要类 | 功能 |
 | --- | --- | --- |
-| [api](src/main/java/com/bbb/exercise/agentdemo/common/api) | `ApiResponse`、`ApiError` | 成功 / 失败响应的数据结构 |
 | [trace](src/main/java/com/bbb/exercise/agentdemo/common/trace) | `RequestId` | 接受有效请求 ID，或生成 UUID |
 | [security](src/main/java/com/bbb/exercise/agentdemo/common/security) | `SignedPrincipal`、`PrincipalKeyRing` | 内部调用签名、验签和活动密钥选择 |
 | [observability](src/main/java/com/bbb/exercise/agentdemo/common/observability) | `ServiceClientObservations` | 限制内部 HTTP 指标 URI 标签基数 |
 | [application-common.yml](src/main/resources/application-common.yml) | 公共配置资源 | Nacos 导入、MyBatis 和管理端点配置素材 |
 
-`ApiResponse.success(data)` 与 `failure(code, message)` 是可选封装，当前服务也存在直接返回 record、Map 或 SSE 的接口，不能假设全项目所有响应都套这一层。
+业务接口按各自契约返回 record、Map 或 SSE；未被调用的通用响应封装已移除。
 
 ## 3. 内部签名如何工作
 
@@ -68,6 +67,6 @@ POM 引入 WebClient、Prometheus registry 和 Zipkin 相关依赖。`applicatio
 mvn -pl agent-common -am '-Dmaven.compiler.fork=true' test
 ```
 
-测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/common`，不随核心源码发布） 覆盖响应封装、签名、观测约定，以及根聚合 POM、配置、部署资产和 Flyway 隔离契约。`InfrastructureContainersTest` 涉及容器环境，应查看该测试的启用条件。
+测试目录（本地路径 `src/test/java/com/bbb/exercise/agentdemo/common`，不随核心源码发布） 覆盖签名、观测约定，以及根聚合 POM、配置、部署资产和 Flyway 隔离契约。`InfrastructureContainersTest` 涉及容器环境，应查看该测试的启用条件。
 
 新增 Common 能力时应确认它确实没有业务归属。架构门禁禁止把 Controller、持久化类和服务实现复制到本模块。内部请求出现 401 时优先核对 key ID、密钥、时钟、audience 和 operation，再核对接收端调用服务白名单。

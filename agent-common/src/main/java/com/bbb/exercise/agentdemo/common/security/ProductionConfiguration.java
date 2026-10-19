@@ -27,19 +27,9 @@ public final class ProductionConfiguration implements EnvironmentPostProcessor, 
 
         ring(value(environment, "app.security.internal-principal-secrets", "INTERNAL_PRINCIPAL_SECRETS"),
                 value(environment, "app.security.internal-principal-active-key-id", "INTERNAL_PRINCIPAL_ACTIVE_KEY_ID"),
-                "app.security.internal-principal-secrets", "app.security.internal-principal-active-key-id", false);
+                "app.security.internal-principal-secrets", "app.security.internal-principal-active-key-id");
         String service = environment.getProperty("spring.application.name", "");
         if (service.equals("agent-auth-service")) {
-            String keys = value(environment, "app.security.api-key-encryption-keys", "API_KEY_ENCRYPTION_KEYS");
-            String legacy = value(environment, "app.security.api-key-encryption-key", "API_KEY_ENCRYPTION_KEY");
-            if (keys != null && !keys.isBlank()) {
-                ring(keys, value(environment, "app.security.api-key-active-key-id", "API_KEY_ACTIVE_KEY_ID"),
-                        "app.security.api-key-encryption-keys", "app.security.api-key-active-key-id", true);
-                // A configured legacy v1 key remains a decryption key even with a v2 ring.
-                if (legacy != null && !legacy.isBlank()) key(legacy, "app.security.api-key-encryption-key", true);
-            } else {
-                key(legacy, "app.security.api-key-encryption-key", true);
-            }
             String otp = value(environment, "app.email.otp-secret", "AUTH_OTP_SECRET");
             if (otp == null || otp.length() < 32 || placeholder(otp)) fail("app.email.otp-secret");
         }
@@ -84,18 +74,18 @@ public final class ProductionConfiguration implements EnvironmentPostProcessor, 
                 || normalized.startsWith("your-");
     }
 
-    private static void ring(String encoded, String active, String property, String activeProperty, boolean exact) {
+    private static void ring(String encoded, String active, String property, String activeProperty) {
         if (encoded == null || encoded.isBlank()) fail(property);
         var ids = new HashSet<String>();
         for (String item : encoded.split(",", -1)) {
             String[] pair = item.trim().split("=", 2);
             if (pair.length != 2 || !pair[0].matches("[A-Za-z0-9_-]{1,64}") || !ids.add(pair[0])) fail(property);
-            key(pair[1].trim(), property, exact);
+            key(pair[1].trim(), property);
         }
         if (active == null || !ids.contains(active)) fail(activeProperty);
     }
 
-    private static void key(String encoded, String property, boolean exact) {
+    private static void key(String encoded, String property) {
         if (encoded == null || encoded.isBlank()) fail(property);
         byte[] decoded;
         try {
@@ -103,7 +93,7 @@ public final class ProductionConfiguration implements EnvironmentPostProcessor, 
         } catch (IllegalArgumentException invalid) {
             throw new IllegalStateException("Unsafe or missing production setting: " + property);
         }
-        if (exact ? decoded.length != 32 : decoded.length < 32) fail(property);
+        if (decoded.length < 32) fail(property);
         byte[] published = "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         if (Arrays.equals(decoded, published)) fail(property);
         boolean identical = true;

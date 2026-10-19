@@ -1,10 +1,8 @@
 package com.bbb.exercise.agentdemo.chatservice.chat;
 
 import com.bbb.exercise.agentdemo.api.dto.ChatAttachmentRequest;
-import com.bbb.exercise.agentdemo.chatservice.generation.SceneCard;
 import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
 import com.bbb.exercise.agentdemo.runtime.client.InternalServiceClient;
-import com.bbb.exercise.agentdemo.runtime.client.AuthModelClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -27,19 +25,7 @@ public class ModelConversationService {
             conversations;
 
     public ModelConversationService(
-            AuthModelClient profiles,
-            UserChatClientFactory clients,
             InternalServiceClient mediaClient,
-            com.bbb.exercise.agentdemo.runtime.client.BillingClient billing) {
-        this(profiles, clients, mediaClient, billing, null, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public ModelConversationService(
-            AuthModelClient profiles,
-            UserChatClientFactory clients,
-            InternalServiceClient mediaClient,
-            com.bbb.exercise.agentdemo.runtime.client.BillingClient billing,
             com.bbb.exercise.agentdemo.runtime.client.ModelCallClient models,
             com.bbb.exercise.agentdemo.chatservice.conversation.ConversationPersistenceService
                     conversations) {
@@ -133,32 +119,6 @@ public class ModelConversationService {
                                             });
                     sink.onCancel(worker::dispose);
                 });
-    }
-
-    public Flux<String> answer(ChatIdentity identity, String prompt) {
-        return answer(identity, prompt, null);
-    }
-
-    public Flux<String> answer(ChatIdentity identity, String prompt, String conversationId) {
-        return answerEvents(identity, prompt, conversationId)
-                .filter(e -> e.type().equals("answer_committed"))
-                .map(e -> String.valueOf(e.payload().get("text")));
-    }
-
-    // 2. 视觉模型调用：读取已授权图片资产，生成可供会话保存的场景信息。
-    public Mono<SceneCard> analyze(ChatIdentity identity, ChatAttachmentRequest attachment) {
-        return analyzeEvents(identity, attachment, null)
-                .filter(e -> e.type().equals("scene_card"))
-                .map(
-                        e ->
-                                new SceneCard(
-                                        String.valueOf(e.payload().get("summary")),
-                                        List.of(),
-                                        "",
-                                        "",
-                                        "",
-                                        String.valueOf(e.payload().get("sourceAssetId"))))
-                .single();
     }
 
     // 2.1. 视觉事件路径：将模型状态和最终场景结果转换为聊天可消费的事件。

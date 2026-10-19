@@ -18,18 +18,4 @@ public record ModelProfile(
 
         model = model.trim();
     }
-
-    public static String maskSecret(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-
-        String normalized = value.trim();
-
-        return normalized.length() <= 8
-                ? "••••••••"
-                : normalized.substring(0, 4)
-                        + "••••••••"
-                        + normalized.substring(normalized.length() - 4);
-    }
 }

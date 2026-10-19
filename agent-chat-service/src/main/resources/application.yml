@@ -14,29 +14,6 @@ spring:
     enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
     table: flyway_schema_history_chat
-  autoconfigure:
-    exclude:
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
-  ai:
-    openai:
-      base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
-      timeout: ${AI_TIMEOUT:60s}
-      max-retries: ${AI_MAX_RETRIES:2}
-    chat:
-      memory:
-        repository:
-          redis:
-            host: ${REDIS_HOST:localhost}
-            port: ${REDIS_PORT:6379}
-            password: ${REDIS_PASSWORD:change-redis-me}
-            key-prefix: "chat:memory:"
-            time-to-live: ${REDIS_MEMORY_TTL:7d}
-            initialize-schema: true
   cloud:
     compatibility-verifier.enabled: false
     nacos:
@@ -66,7 +43,6 @@ app:
     dimensions: ${VISION_MEMORY_DIMENSIONS:1024}
     similarity-threshold: ${VISION_MEMORY_SIMILARITY_THRESHOLD:0.55}
   security:
-    api-key-encryption-key: ${API_KEY_ENCRYPTION_KEY:}
     internal-principal-secrets: ${INTERNAL_PRINCIPAL_SECRETS:}
     internal-principal-active-key-id: ${INTERNAL_PRINCIPAL_ACTIVE_KEY_ID:current}
     anonymous-cookie-name: ${ANONYMOUS_COOKIE_NAME:bbb_agent_anonymous_id}
