@@ -181,13 +181,14 @@ public class ChatService {
             String question, ConversationSession session, Instant receivedAt) {
         String conversationId = session.conversationId();
         String prompt = question.trim();
-        record PreparedTurn(String history, AtomicReference<StringBuilder> answer) {}
+        record PreparedTurn(String attemptId, String history, AtomicReference<StringBuilder> answer) {}
         Mono<PreparedTurn> turn =
                 Mono.fromCallable(
                                 () -> {
-                                    String history = conversations.committedHistory(session);
-                                    conversations.appendUserMessage(session, prompt);
-                                    return new PreparedTurn(history, new AtomicReference<>(new StringBuilder()));
+                                    String history = conversations.committedHistory(session, "", prompt, 0, null);
+                                    String attemptId = java.util.UUID.randomUUID().toString();
+                                    conversations.appendUserMessage(session, prompt, attemptId);
+                                    return new PreparedTurn(attemptId, history, new AtomicReference<>(new StringBuilder()));
                                 })
                         .subscribeOn(Schedulers.boundedElastic());
         // 3.1. 生命周期收尾：正常结束保存完整回答，错误或取消保存未完成内容。
@@ -228,10 +229,10 @@ public class ChatService {
                                                                                 "model_status")
                                                                         .contains(event.type()))
                                                 .map(ChatService::generationEvent),
-                                answer -> persistAssistant(session, answer.answer().get().toString(), true),
+                                answer -> persistAssistant(session, answer.answer().get().toString(), true, answer.attemptId()),
                                 (answer, error) ->
-                                        persistAssistant(session, answer.answer().get().toString(), false),
-                                answer -> persistAssistant(session, answer.answer().get().toString(), false))
+                                        persistAssistant(session, answer.answer().get().toString(), false, answer.attemptId()),
+                                answer -> persistAssistant(session, answer.answer().get().toString(), false, answer.attemptId()))
                         .concatWith(Flux.just(stopEvent()))
                         .onErrorResume(
                                 error ->
@@ -247,9 +248,9 @@ public class ChatService {
 
     // 3.2. 回答落库：把是否完整作为持久化字段，供后续历史选择使用。
     private Mono<Void> persistAssistant(
-            ConversationSession session, String content, boolean completed) {
+            ConversationSession session, String content, boolean completed, String attemptId) {
         return Mono.fromRunnable(
-                        () -> conversations.appendAssistantMessage(session, content, completed))
+                        () -> conversations.appendAssistantMessage(session, content, completed, attemptId))
                 .subscribeOn(Schedulers.boundedElastic())
                 .then();
     }

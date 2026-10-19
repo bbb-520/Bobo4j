@@ -21,12 +21,14 @@ public class ExecutionStore {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final ObjectMapper json;
+    private final ExecutionSteps executionSteps;
 
     public ExecutionStore(
             JdbcTemplate jdbc, PlatformTransactionManager manager, ObjectMapper json) {
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(manager);
         this.json = json;
+        this.executionSteps = new ExecutionSteps(jdbc, tx, this);
     }
 
     /** 执行创建请求，绑定幂等请求号、任务类型、会话及图片生成授权。 */
@@ -435,171 +437,29 @@ public class ExecutionStore {
             Object request,
             String consumption,
             String toolName) {
-        return tx.execute(
-                s -> {
-                    lock(lease);
-                    var old = steps(lease.executionId(), key);
-
-                    if (!old.isEmpty()) {
-                        var step = old.getFirst();
-
-                        if (!step.hash().equals(parameterHash) || !step.callId().equals(callId)) {
-                            throw conflict("步骤参数不一致");
-                        }
-
-                        return step;
-                    }
-
-                    String id = UUID.randomUUID().toString();
-                    var at = now();
-                    String body = request == null ? null : write(request);
-
-                    jdbc.update(
-                            "INSERT INTO agent_execution_step(id,execution_id,step_key,parameter_hash,call_id,status,target,request_path,request_json,consumption,tool_name,created_at,updated_at) VALUES(?,?,?,?,?,'DISPATCHED',?,?,?,?,?,?,?)",
-                            id,
-                            lease.executionId(),
-                            key,
-                            parameterHash,
-                            callId,
-                            target,
-                            path,
-                            body,
-                            consumption,
-                            toolName,
-                            stamp(at),
-                            stamp(at));
-
-                    return new Step(
-                            id,
-                            key,
-                            parameterHash,
-                            callId,
-                            "DISPATCHED",
-                            Map.of(),
-                            0,
-                            target,
-                            path,
-                            body,
-                            consumption,
-                            toolName);
-                });
+        return executionSteps.beginStep(lease, key, parameterHash, callId, target, path, request, consumption, toolName);
     }
 
     // 4.1. 步骤回执：保存明确结果，后续恢复可以直接重放。
     public void finishStep(
             Lease lease, Step step, Map<String, Object> result, ExecutionBudget budget) {
-        tx.executeWithoutResult(
-                s -> {
-                    lock(lease);
-                    jdbc.update(
-                            "UPDATE agent_execution_step SET status='SUCCEEDED',result_json=?,updated_at=? WHERE id=? AND execution_id=? AND status='DISPATCHED'",
-                            write(result),
-                            stamp(now()),
-                            step.id(),
-                            lease.executionId());
-                    saveBudgetLocked(lease.executionId(), budget);
-                });
+        executionSteps.finishStep(lease, step, result, budget);
     }
 
     // 5. 执行预算：将步骤耗时和 Token 预留分别持久化。
     /** Cumulative attempt time, flushed on heartbeats and on every success/failure/cancellation. */
     public void accountStepTime(Lease lease, Step step, long attemptMillis) {
-        if (attemptMillis < 0) {
-            throw bad("执行时长无效");
-        }
-
-        tx.executeWithoutResult(
-                s -> {
-                    var row = lock(lease);
-                    long stored =
-                            jdbc.queryForObject(
-                                    "SELECT active_millis FROM agent_execution_step WHERE id=? AND execution_id=?",
-                                    Long.class,
-                                    step.id(),
-                                    lease.executionId());
-                    long total = Math.addExact(step.activeMillis(), attemptMillis),
-                            delta = Math.max(0, total - stored);
-
-                    if (delta > 0) {
-                        jdbc.update(
-                                "UPDATE agent_execution_step SET active_millis=?,updated_at=? WHERE id=?",
-                                total,
-                                stamp(now()),
-                                step.id());
-                        saveBudgetLocked(lease.executionId(), row.budget().charge(0, 0, delta));
-                    }
-                });
+        executionSteps.accountStepTime(lease, step, attemptMillis);
     }
 
     // 5.1. 派发前预留：先占用步骤 Token 上界，再允许调用远端服务。
     public long reserveStepTokens(Lease lease, Step step) {
-        return tx.execute(
-                s -> {
-                    var row = lock(lease);
-                    long held =
-                            jdbc.queryForObject(
-                                    "SELECT reserved_tokens FROM agent_execution_step WHERE id=? AND execution_id=?",
-                                    Long.class,
-                                    step.id(),
-                                    lease.executionId());
-
-                    if (held > 0) {
-                        return held;
-                    }
-
-                    long remaining = row.budget().availableTokens();
-
-                    if (remaining <= 0) {
-                        throw conflict("剩余token预算不足");
-                    }
-
-                    jdbc.update(
-                            "UPDATE agent_execution_step SET reserved_tokens=? WHERE id=?",
-                            remaining,
-                            step.id());
-                    saveBudgetLocked(lease.executionId(), row.budget().reserve(remaining));
-
-                    return remaining;
-                });
+        return executionSteps.reserveStepTokens(lease, step);
     }
 
     // 5.2. Token 结算：按真实用量或未知预留更新预算，避免恢复时重复记账。
     public void settleStepTokens(Lease lease, Step step, long input, long output, long unknown) {
-        if (input < 0 || output < 0 || unknown < 0) {
-            throw bad("模型用量无效");
-        }
-
-        tx.executeWithoutResult(
-                s -> {
-                    var row = lock(lease);
-                    var saved =
-                            jdbc.queryForMap(
-                                    "SELECT accounted_input_tokens,accounted_output_tokens,reserved_tokens,unknown_tokens FROM agent_execution_step WHERE id=? AND execution_id=?",
-                                    step.id(),
-                                    lease.executionId());
-                    long oldInput = ((Number) saved.get("accounted_input_tokens")).longValue(),
-                            oldOutput = ((Number) saved.get("accounted_output_tokens")).longValue();
-                    long held = ((Number) saved.get("reserved_tokens")).longValue(),
-                            oldUnknown = ((Number) saved.get("unknown_tokens")).longValue();
-                    long settledInput = Math.max(input, oldInput),
-                            settledOutput = Math.max(output, oldOutput);
-                    var budget =
-                            row.budget()
-                                    .charge(settledInput - oldInput, settledOutput - oldOutput, 0)
-                                    .withReserved(
-                                            row.budget().reservedTokens()
-                                                    - held
-                                                    - oldUnknown
-                                                    + unknown);
-
-                    jdbc.update(
-                            "UPDATE agent_execution_step SET accounted_input_tokens=?,accounted_output_tokens=?,unknown_tokens=?,reserved_tokens=0 WHERE id=?",
-                            settledInput,
-                            settledOutput,
-                            unknown,
-                            step.id());
-                    saveBudgetLocked(lease.executionId(), budget);
-                });
+        executionSteps.settleStepTokens(lease, step, input, output, unknown);
     }
 
     public void saveBudget(Lease lease, ExecutionBudget budget) {
@@ -610,7 +470,7 @@ public class ExecutionStore {
                 });
     }
 
-    private void saveBudgetLocked(String id, ExecutionBudget budget) {
+    void saveBudgetLocked(String id, ExecutionBudget budget) {
         var at = now();
 
         jdbc.update(
@@ -627,20 +487,10 @@ public class ExecutionStore {
     }
 
     public List<Step> completedSteps(Lease lease) {
-        leased(lease);
-        return jdbc.query(
-                "SELECT * FROM agent_execution_step WHERE execution_id=? AND status='SUCCEEDED' ORDER BY created_at,id",
-                stepMapper(),
-                lease.executionId());
+        return executionSteps.completedSteps(lease);
     }
 
-    private List<Step> steps(String id, String key) {
-        return jdbc.query(
-                "SELECT * FROM agent_execution_step WHERE execution_id=? AND step_key=?",
-                stepMapper(),
-                id,
-                key);
-    }
+
 
     // 6. 任务完成：提交最终答案、来源和评估结果，并追加终态事件。
     public void complete(
@@ -919,7 +769,7 @@ public class ExecutionStore {
                 stamp(at.minusSeconds(7L * 86400)));
     }
 
-    private Row lock(Lease lease) {
+    Row lock(Lease lease) {
         var row = lockOwned(lease.identity(), lease.executionId());
 
         checkLease(row, lease);
@@ -1036,22 +886,7 @@ public class ExecutionStore {
     }
 
     private RowMapper<Step> stepMapper() {
-        return (rs, n) ->
-                new Step(
-                        rs.getString("id"),
-                        rs.getString("step_key"),
-                        rs.getString("parameter_hash"),
-                        rs.getString("call_id"),
-                        rs.getString("status"),
-                        rs.getString("result_json") == null
-                                ? Map.of()
-                                : map(rs.getString("result_json")),
-                        rs.getLong("active_millis"),
-                        rs.getString("target"),
-                        rs.getString("request_path"),
-                        rs.getString("request_json"),
-                        rs.getString("consumption"),
-                        rs.getString("tool_name"));
+        return executionSteps.stepMapper();
     }
 
     private void samePayload(String id, String hash) {
@@ -1084,13 +919,13 @@ public class ExecutionStore {
         }
     }
 
-    private Instant now() {
+    Instant now() {
         return Objects.requireNonNull(
                         jdbc.queryForObject("SELECT CURRENT_TIMESTAMP", Timestamp.class))
                 .toInstant();
     }
 
-    private static Timestamp stamp(Instant at) {
+    static Timestamp stamp(Instant at) {
         return Timestamp.from(at);
     }
 
@@ -1194,11 +1029,11 @@ public class ExecutionStore {
         return hash(write(legacy));
     }
 
-    private static ResponseStatusException bad(String m) {
+    static ResponseStatusException bad(String m) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, m);
     }
 
-    private static ResponseStatusException conflict(String m) {
+    static ResponseStatusException conflict(String m) {
         return new ResponseStatusException(HttpStatus.CONFLICT, m);
     }
 

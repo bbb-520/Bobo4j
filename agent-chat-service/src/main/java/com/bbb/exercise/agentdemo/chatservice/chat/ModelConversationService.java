@@ -86,7 +86,8 @@ public class ModelConversationService {
         return Flux.defer(() -> {
             String history = "";
             if (conversationId != null && conversations != null) {
-                history = conversations.committedHistory(conversations.openOrCreate(conversationId, identity));
+                history = conversations.committedHistory(
+                        conversations.openOrCreate(conversationId, identity), "", prompt, 0, null);
             }
             return answerEvents(identity, prompt, conversationId, history);
         }).subscribeOn(Schedulers.boundedElastic());

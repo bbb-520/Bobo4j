@@ -93,17 +93,28 @@ public class ConversationPersistenceService {
     // 2. 消息追加：用户消息视为已提交，助手消息额外记录生成是否完成。
     @Transactional
     public void appendUserMessage(ConversationSession session, String content) {
-        insertMessage(session, "user", content, true);
+        appendUserMessage(session, content, null);
+    }
+
+    @Transactional
+    public void appendUserMessage(ConversationSession session, String content, String attemptId) {
+        insertMessage(session, "user", content, true, attemptId);
     }
 
     @Transactional
     public void appendAssistantMessage(
             ConversationSession session, String content, boolean completed) {
+        appendAssistantMessage(session, content, completed, null);
+    }
+
+    @Transactional
+    public void appendAssistantMessage(
+            ConversationSession session, String content, boolean completed, String attemptId) {
         if (content == null || content.isBlank()) {
             return;
         }
 
-        insertMessage(session, "assistant", content, completed);
+        insertMessage(session, "assistant", content, completed, attemptId);
     }
 
     // 2.1. 成对消息：同一事务保存用户输入与助手确认，避免只写入半轮。
@@ -114,16 +125,22 @@ public class ConversationPersistenceService {
             String userContent,
             String assistantContent,
             boolean assistantCompleted) {
-        insertMessage(session, "user", userContent, true);
+        appendTurn(session, userContent, assistantContent, assistantCompleted, java.util.UUID.randomUUID().toString());
+    }
+
+    @Transactional
+    public void appendTurn(ConversationSession session, String userContent, String assistantContent,
+            boolean assistantCompleted, String attemptId) {
+        insertMessage(session, "user", userContent, true, attemptId);
 
         if (assistantContent != null && !assistantContent.isBlank()) {
-            insertMessage(session, "assistant", assistantContent, assistantCompleted);
+            insertMessage(session, "assistant", assistantContent, assistantCompleted, attemptId);
         }
     }
 
     // 2.2. 消息落库：保存内容和完成状态，同时更新会话的最近活动时间。
     private void insertMessage(
-            ConversationSession session, String role, String content, boolean completed) {
+            ConversationSession session, String role, String content, boolean completed, String attemptId) {
         if (session == null) {
             throw new IllegalArgumentException("会话不能为空");
         }
@@ -135,6 +152,7 @@ public class ConversationPersistenceService {
         ChatMessageEntity message = new ChatMessageEntity();
 
         message.setConversationDbId(session.databaseId());
+        message.setAttemptId(attemptId);
         message.setRole(role);
         message.setContent(content);
         message.setCompleted(completed ? 1 : 0);
@@ -171,6 +189,14 @@ public class ConversationPersistenceService {
     // 3. 兼容文本入口：历史选择统一委托完整轮次策略。
     public String committedHistory(ConversationSession session) {
         return ConversationHistory.render(recentTurns(session, historyTokenBudget));
+    }
+
+    /** New calls share the runtime budget; existing durable inputs must never be reselected. */
+    public String committedHistory(
+            ConversationSession session, String system, String question, int imageCount, Long tokenBudget) {
+        int budget = ConversationHistory.budgetForCall(
+                historyTokenBudget, system, question, imageCount, tokenBudget);
+        return ConversationHistory.render(recentTurns(session, budget));
     }
 
     /** Returns a recent whole-attempt suffix; tokenBudget is a conservative UTF-8 byte bound. */

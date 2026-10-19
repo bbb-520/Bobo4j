@@ -9,6 +9,11 @@ public final class TokenBudgetEstimator {
 
     public static final int MAX_COMPLETION_OUTPUT = 2048;
 
+    /** Shared primary-call admission limit; this is not measured usage or a charge. */
+    public static long generationLimit(Long requestedBudget) {
+        return requestedBudget == null ? 64000L : Math.min(64000L, requestedBudget);
+    }
+
     // 1. 文本预算估计：为输入和输出设置保守上界，供派发前准入使用。
     public static long completion(String mode, String system, String user, boolean fallback) {
         return completion(

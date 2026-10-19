@@ -126,7 +126,8 @@ public class InternalCompletionService {
                             }
 
                             String history =
-                                    session == null ? "" : conversations.committedHistory(session);
+                                    session == null ? "" : conversations.committedHistory(
+                                            session, request.system(), question, attachments.size(), request.tokenBudget());
                             String user = com.bbb.exercise.agentdemo.chatservice.conversation.ConversationHistory
                                     .withQuestion(history, question);
 
@@ -262,7 +263,7 @@ public class InternalCompletionService {
                             if (session != null
                                     && !Boolean.TRUE.equals(row.get("history_committed"))) {
                                 conversations.appendTurn(
-                                        session, question, result.text(), true);
+                                        session, question, result.text(), true, request.callId());
                             }
 
                             jdbc.update(

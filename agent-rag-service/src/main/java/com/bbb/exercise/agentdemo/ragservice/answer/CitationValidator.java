@@ -84,7 +84,7 @@ public final class CitationValidator {
                 for (String line : lines) {
                     if (listStart(line)) {
                         if (!unit.isEmpty() && !CITATION.matcher(unit).find()
-                                && (item > 0 || unit.toString().replaceAll("[#*\\s]", "").length() > 20)) {
+                                && (item > 0 || !sectionLabel(unit.toString()))) {
                             missing.add(item == 0 ? label : label + " list item " + item);
                         }
                         unit.setLength(0); item++;
@@ -92,12 +92,17 @@ public final class CitationValidator {
                     if (!line.isBlank()) unit.append(line).append('\n');
                 }
                 if (!unit.isEmpty() && !CITATION.matcher(unit).find()) missing.add(label + " list item " + item);
-            } else if (!paragraph.isBlank() && paragraph.replaceAll("[#*\\s]", "").length() > 20
+            } else if (!paragraph.isBlank()
                     && !CITATION.matcher(paragraph).find()) {
                 missing.add(label);
             }
         }
         return missing;
+    }
+
+    /** A one-line list label is formatting, not a length-based exemption for factual prose. */
+    private static boolean sectionLabel(String text) {
+        return text.strip().matches("[\\p{L} ]{1,20}[:：]");
     }
 
     private static boolean listStart(String line) {

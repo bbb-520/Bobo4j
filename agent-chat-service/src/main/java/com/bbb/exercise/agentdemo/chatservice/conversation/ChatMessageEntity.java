@@ -16,6 +16,8 @@ public class ChatMessageEntity {
     private Long id;
 
     private Long conversationDbId;
+    /** Durable request association; null only for messages written before attempt tracking. */
+    private String attemptId;
     private String role;
     private String content;
     private Integer completed;
