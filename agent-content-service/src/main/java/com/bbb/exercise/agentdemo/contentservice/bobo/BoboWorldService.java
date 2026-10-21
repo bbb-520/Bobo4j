@@ -288,7 +288,7 @@ public class BoboWorldService {
         return mineItem(requireOwned(identity, itemId));
     }
 
-    // 4. 作品删除：先软删除并登记清理标记，让存储清理在后续任务中执行。
+    // 4. 作品删除：撤下作品只改变可见性状态，不触碰 Media 所有的生成资产。
     @Transactional
     public void delete(ChatIdentity identity, String itemId) {
         if (identity == null || !identity.authenticated()) {
@@ -304,7 +304,7 @@ public class BoboWorldService {
         LocalDateTime now = LocalDateTime.now();
 
         jdbc.update(
-                "UPDATE bobo_world_item SET status='DELETED',deleted_at=?,updated_at=?,cleanup_pending=1 "
+                "UPDATE bobo_world_item SET status='DELETED',deleted_at=?,updated_at=? "
                         + "WHERE id=? AND tenant_id=? AND user_id=? AND status<>'DELETED'",
                 now,
                 now,
@@ -312,24 +312,24 @@ public class BoboWorldService {
                 identity.tenantId(),
                 identity.userId());
         log.info(
-                "Bobo World item deleted and queued for OSS cleanup itemId={} owner={}",
+                "Bobo World item withdrawn itemId={} owner={}; generated asset stays with Media",
                 itemId,
                 identity.userId());
     }
 
-    // 4.1. 异步清理：逐批删除对象，失败项保留待清理状态供再次处理。
+    // 4.1. 存量兼容：旧版本把作品撤下当作"删除独占副本"，把共享的生成对象排入清理队列。
     /**
-     * Deletes objects belonging to soft-deleted works after the database transaction has committed.
-     * Failed attempts remain pending and are retried on the next scheduled run.
+     * Retires cleanup intents written by previous versions.
+     *
+     * <p>The object in {@code image_object_key} is always the Media job's own output: Content only
+     * references it. Deleting it here would destroy a generation the user still owns, so legacy
+     * pending rows are drained without calling the object store. Physical deletion stays with the
+     * asset owner (Media), and any independent work copy needs a separate design.
      */
     @Scheduled(
             fixedDelayString = "${app.bobo.cleanup-interval:60000}",
             initialDelayString = "${app.bobo.cleanup-initial-delay:30000}")
-    public void cleanupDeletedObjects() {
-        if (!storage.isConfigured()) {
-            return;
-        }
-
+    public void retireLegacyCleanupRequests() {
         List<CleanupCandidate> candidates =
                 jdbc.query(
                         "SELECT id,image_object_key FROM bobo_world_item "
@@ -340,24 +340,18 @@ public class BoboWorldService {
                                         rs.getString("id"), rs.getString("image_object_key")));
 
         for (CleanupCandidate candidate : candidates) {
-            try {
-                storage.deleteObject(candidate.objectKey());
-                int updated =
-                        jdbc.update(
-                                "UPDATE bobo_world_item SET cleanup_pending=0,updated_at=? "
-                                        + "WHERE id=? AND status='DELETED' AND cleanup_pending=1",
-                                LocalDateTime.now(),
-                                candidate.id());
+            int updated =
+                    jdbc.update(
+                            "UPDATE bobo_world_item SET cleanup_pending=0,updated_at=? "
+                                    + "WHERE id=? AND status='DELETED' AND cleanup_pending=1",
+                            LocalDateTime.now(),
+                            candidate.id());
 
-                if (updated == 1) {
-                    log.info("Bobo World OSS cleanup completed itemId={}", candidate.id());
-                }
-            } catch (Exception error) {
-                log.warn(
-                        "Bobo World OSS cleanup will retry itemId={} errorType={} message={}",
+            if (updated == 1) {
+                log.info(
+                        "Bobo World legacy cleanup intent retired without deleting shared asset itemId={} objectKey={}",
                         candidate.id(),
-                        error.getClass().getSimpleName(),
-                        error.getMessage());
+                        candidate.objectKey());
             }
         }
     }
