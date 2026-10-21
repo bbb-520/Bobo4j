@@ -241,6 +241,16 @@ public class ExecutionStore {
 
     // 1.2. 任务读取：先核对归属，再补充模型状态等展示信息。
     public Row get(ChatIdentity identity, String id) {
+        return withModelStatus(load(identity, id));
+    }
+
+    /**
+     * 读取执行行本身（不含 {@code model_status} 事件）。
+     *
+     * <p>{@code model_status} 是给"查看任务详情"这类一次性接口用的当前模型状态；SSE 每 tick 都要读行，
+     * 但推的是事件流，用不到这个字段。把它从热路径里摘掉，单次读行从 2 条 SQL 降到 1 条。</p>
+     */
+    private Row load(ChatIdentity identity, String id) {
         authenticated(identity);
         uuid(id);
         var rows =
@@ -257,7 +267,63 @@ public class ExecutionStore {
 
         assertOwner(identity, rows.getFirst());
 
-        return withModelStatus(rows.getFirst());
+        return rows.getFirst();
+    }
+
+    /**
+     * 轮询快照（F10）：只读流式推送真正需要的两列。
+     *
+     * <p>{@link #get} 每次都要额外读一次 {@code model_status} 事件，SSE 的每个 tick 都用不到它；
+     * 而 {@link #view} 里的答案、来源、预算字段同样只服务于单次查询接口。订阅端每 500ms
+     * 调一次 {@code get} 就等于每 500ms 做两次查询、读回一整行，其中绝大部分字段被丢弃。</p>
+     *
+     * <p>这里只取 {@code status} 与 {@code last_seq}：前者判定终态，后者决定是否需要拉事件。
+     * 一次查询，一条窄行，语义与 {@code get} 的归属校验一致（WHERE 直接带租户与用户）。</p>
+     */
+    public Snapshot snapshot(ChatIdentity identity, String id) {
+        authenticated(identity);
+        uuid(id);
+        var rows =
+                jdbc.query(
+                        "SELECT status,last_seq FROM agent_execution WHERE id=? AND tenant_id=? AND user_id=?",
+                        (rs, n) -> new Snapshot(rs.getString("status"), rs.getLong("last_seq")),
+                        id,
+                        identity.tenantId(),
+                        identity.userId());
+
+        if (rows.isEmpty()) {
+            throw missing();
+        }
+
+        return rows.getFirst();
+    }
+
+    /** 轮询快照：执行状态与已持久化的最大事件序号。 */
+    public record Snapshot(String status, long lastSeq) {}
+
+    /**
+     * 队列滞留时长（秒）：最老的 QUEUED 任务等了多久（F14）。
+     *
+     * <p>两端时间都由数据库给出再相减，<b>不能</b>拿 JVM 的 {@code currentTimeMillis()} 去减 DB 的
+     * {@code created_at}：容器跑 UTC、应用跑 Asia/Shanghai 时差 8 小时，那会让这个 gauge 恒为
+     * 28800 秒，告警要么永远响要么永远不响。这一条在 WP3 的 MySQL 用例里被专门验证过（容器
+     * UTC vs JVM 上海，差值 ≥ 1h），所以这里按"同源时钟"实现。</p>
+     */
+    public double oldestQueuedSeconds() {
+        var row =
+                jdbc.queryForMap(
+                        "SELECT MIN(created_at) AS oldest, CURRENT_TIMESTAMP AS now FROM agent_execution WHERE status='QUEUED'");
+        Object oldest = row.get("oldest");
+
+        if (oldest == null) {
+            return 0;
+        }
+
+        long elapsed =
+                ((java.sql.Timestamp) row.get("now")).getTime()
+                        - ((java.sql.Timestamp) oldest).getTime();
+
+        return Math.max(0, elapsed / 1000.0);
     }
 
     private Row withModelStatus(Row row) {
@@ -712,34 +778,52 @@ public class ExecutionStore {
 
     // 8. 回放查询：按用户归属和事件序号分页读取。
     public List<Event> events(ChatIdentity identity, String id, long after, int limit) {
-        var row = get(identity, id);
+        // 只读行本身：回放是热路径，model_status 与事件回放无关（见 load 的说明）。
+        var row = load(identity, id);
 
         if (after < 0 || after > row.view().lastSeq()) {
             throw bad("事件游标无效");
         }
 
-        Long floor =
-                jdbc.queryForObject(
-                        "SELECT MIN(seq) FROM agent_execution_event WHERE execution_id=?",
-                        Long.class,
-                        id);
+        var events =
+                jdbc.query(
+                        "SELECT * FROM agent_execution_event WHERE execution_id=? AND seq>? ORDER BY seq LIMIT ?",
+                        (rs, n) ->
+                                new Event(
+                                        id,
+                                        rs.getLong("seq"),
+                                        rs.getString("type"),
+                                        rs.getInt("generation_version"),
+                                        map(rs.getString("payload_json"))),
+                        id,
+                        after,
+                        Math.clamp(limit, 1, 200));
 
-        if (floor != null && after < floor - 1 || floor == null && after < row.view().lastSeq()) {
-            throw new ResponseStatusException(HttpStatus.GONE, "事件已过期，请读取任务快照");
+        // 保留窗口判断只在"确实可能断档"时做一次 MIN(seq)：
+        //   - 结果为空且游标落后 → 中间页被保留策略裁掉，必须 410 让客户端改读快照；
+        //   - 首条紧接着游标（after+1）→ 连续，不可能跨过保留窗口，无需再查；
+        //   - 首条跳号 → 查 MIN(seq) 确认是裁剪还是并发写入的正常间隙。
+        if (events.isEmpty()) {
+            if (after < row.view().lastSeq()) {
+                throw new ResponseStatusException(HttpStatus.GONE, "事件已过期，请读取任务快照");
+            }
+
+            return events;
         }
 
-        return jdbc.query(
-                "SELECT * FROM agent_execution_event WHERE execution_id=? AND seq>? ORDER BY seq LIMIT ?",
-                (rs, n) ->
-                        new Event(
-                                id,
-                                rs.getLong("seq"),
-                                rs.getString("type"),
-                                rs.getInt("generation_version"),
-                                map(rs.getString("payload_json"))),
-                id,
-                after,
-                Math.clamp(limit, 1, 200));
+        if (events.getFirst().seq() != after + 1) {
+            Long floor =
+                    jdbc.queryForObject(
+                            "SELECT MIN(seq) FROM agent_execution_event WHERE execution_id=?",
+                            Long.class,
+                            id);
+
+            if (floor != null && after < floor - 1) {
+                throw new ResponseStatusException(HttpStatus.GONE, "事件已过期，请读取任务快照");
+            }
+        }
+
+        return events;
     }
 
     // 8.1. 恢复查询：找出尚未完成的远端步骤，供执行器核对回执。

@@ -9,8 +9,8 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.TimeUnit;
@@ -27,15 +27,41 @@ public class ExecutionController {
                     "WAITING_FOR_BUDGET",
                     "WAITING_FOR_RECONCILIATION",
                     "NEEDS_INPUT");
+    /** 心跳间隔：与改造前一致，客户端据此判断连接存活。 */
+    private static final long HEARTBEAT_SECONDS = 15;
+
     private final ExecutionStore store;
     private final ExecutionIdentity identities;
     private final ExecutionClient client;
 
+    /** 首字耗时等流式指标（F14）。 */
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
+
+    /** 任务级共享轮询（F10）。无外部依赖，随 controller 生命周期存在。 */
+    private final ExecutionPollers pollers = new ExecutionPollers();
+
     public ExecutionController(
             ExecutionStore store, ExecutionIdentity identities, ExecutionClient client) {
+        this(store, identities, client, io.micrometer.core.instrument.Metrics.globalRegistry);
+    }
+
+    /**
+     * 容器装配入口。
+     *
+     * <p>为什么必须显式 {@code @Autowired}：本类有两个构造器（另一个给测试手工构造用），
+     * 一旦出现多个候选，Spring 不再做"唯一构造器"推导，而是回退去找无参构造器，
+     * 结果就是启动期 {@code No default constructor found}。显式标注可消除这类歧义。
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    public ExecutionController(
+            ExecutionStore store,
+            ExecutionIdentity identities,
+            ExecutionClient client,
+            io.micrometer.core.instrument.MeterRegistry metrics) {
         this.store = store;
         this.identities = identities;
         this.client = client;
+        this.metrics = metrics;
     }
 
     // 1. 持久任务入口：保存任务和请求幂等键，由后台执行器异步处理。
@@ -158,32 +184,54 @@ public class ExecutionController {
 
     Flux<ServerSentEvent<Object>> stream(ChatIdentity identity, String id, long after) {
         var cursor = new AtomicLong(after);
+        var subscribedAt = System.nanoTime();
+        var firstEvent = new java.util.concurrent.atomic.AtomicBoolean();
         Flux<ServerSentEvent<Object>> data =
-                Flux.interval(Duration.ZERO, Duration.ofMillis(500))
+                pollers
+                        // F10：状态轮询按任务共享，多订阅者不再各拉一路。
+                        .join(identity, id, () -> store.snapshot(identity, id))
                         .concatMap(
-                                t ->
-                                        work(
-                                                () -> {
-                                                    var events =
-                                                            store.events(
-                                                                    identity,
-                                                                    id,
-                                                                    cursor.get(),
-                                                                    200);
-                                                    var view = store.get(identity, id).view();
-                                                    boolean done =
-                                                            TERMINAL.contains(view.status())
-                                                                    && (events.isEmpty()
-                                                                            || events.getLast()
-                                                                                            .seq()
-                                                                                    == view
-                                                                                            .lastSeq());
+                                snapshot -> {
+                                    long from = cursor.get();
 
-                                                    return new Batch(events, done);
-                                                }))
+                                    if (from > snapshot.lastSeq()) {
+                                        return Mono.error(
+                                                new ResponseStatusException(
+                                                        HttpStatus.BAD_REQUEST, "事件游标无效"));
+                                    }
+
+                                    boolean terminal = TERMINAL.contains(snapshot.status());
+
+                                    // 没有新事件时直接结束本 tick：不再为了判断终态多查一次执行行，
+                                    // 也不为空窗口发一条 events 查询。
+                                    if (snapshot.lastSeq() <= from) {
+                                        return terminal ? Mono.just(new Batch(List.of(), true)) : Mono.empty();
+                                    }
+
+                                    return work(() -> store.events(identity, id, from, 200))
+                                            .map(
+                                                    events ->
+                                                            new Batch(
+                                                                    events,
+                                                                    terminal
+                                                                            && events.getLast().seq()
+                                                                                    == snapshot
+                                                                                            .lastSeq()));
+                                })
                         .takeUntil(Batch::done)
                         .concatMap(batch -> Flux.fromIterable(batch.events()))
-                        .doOnNext(e -> cursor.set(e.seq()))
+                        .doOnNext(
+                                e -> {
+                                    cursor.set(e.seq());
+
+                                    // F14：首字耗时。只记第一条，后续事件进入同一条 timer 没有意义。
+                                    if (firstEvent.compareAndSet(false, true)) {
+                                        metrics.timer("agent.execution.stream.first-event")
+                                                .record(
+                                                        System.nanoTime() - subscribedAt,
+                                                        TimeUnit.NANOSECONDS);
+                                    }
+                                })
                         .map(
                                 e ->
                                         ServerSentEvent.<Object>builder(e)
@@ -191,17 +239,46 @@ public class ExecutionController {
                                                 .id(e.executionId() + ":" + e.seq())
                                                 .build());
 
-        return data.publish(
-                shared ->
-                        Flux.merge(
-                                shared,
-                                Flux.interval(Duration.ofSeconds(15))
-                                        .map(
-                                                t ->
-                                                        ServerSentEvent.<Object>builder()
-                                                                .comment("heartbeat")
-                                                                .build())
-                                        .takeUntilOther(shared.ignoreElements())));
+        return withHeartbeat(data);
+    }
+
+    /**
+     * 心跳包装（F10 顺带修）。
+     *
+     * <p>原实现用 {@code data.publish(shared -> Flux.merge(shared, …takeUntilOther(shared.ignoreElements())))}，
+     * 其中 {@code shared} 被订阅了两次——`publish` 的交由函数只允许一次订阅，第二次会排队甚至
+     * 触发额外的上游订阅，这也是查询数远超"每 tick 固定几条"的原因之一。改为显式单订阅：
+     * 数据流订阅一次，心跳由独立定时器写入同一个 sink，二者同生同灭。</p>
+     */
+    private static Flux<ServerSentEvent<Object>> withHeartbeat(Flux<ServerSentEvent<Object>> data) {
+        return Flux.defer(
+                () -> {
+                    Sinks.Many<ServerSentEvent<Object>> sink =
+                            Sinks.many().unicast().onBackpressureBuffer();
+                    var heartbeat =
+                            Schedulers.parallel()
+                                    .schedulePeriodically(
+                                            () ->
+                                                    sink.tryEmitNext(
+                                                            ServerSentEvent.<Object>builder()
+                                                                    .comment("heartbeat")
+                                                                    .build()),
+                                            HEARTBEAT_SECONDS,
+                                            HEARTBEAT_SECONDS,
+                                            TimeUnit.SECONDS);
+                    var subscription =
+                            data.subscribe(
+                                    event -> sink.tryEmitNext(event),
+                                    error -> sink.tryEmitError(error),
+                                    () -> sink.tryEmitComplete());
+
+                    return sink.asFlux()
+                            .doFinally(
+                                    signal -> {
+                                        heartbeat.dispose();
+                                        subscription.dispose();
+                                    });
+                });
     }
 
     // 3.1. 回放游标：解析客户端最后确认的事件位置，拒绝非法序号。
