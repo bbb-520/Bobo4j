@@ -314,6 +314,31 @@ public class MilvusVectorIndex implements VectorIndex {
                                 .build());
     }
 
+    // 4.0. 删除核对：统计该文档在所有版本上的向量条数，供清理账本确认是否真的干净。
+    @Override
+    public int count(ChatIdentity who, String document) {
+        var response =
+                client().query(
+                                QueryReq.builder()
+                                        .collectionName(collection)
+                                        .filter(
+                                                "tenant_id == "
+                                                        + quote(who.tenantId())
+                                                        + " and user_id == "
+                                                        + quote(who.userId())
+                                                        + " and document_id == "
+                                                        + quote(document))
+                                        .outputFields(List.of("count(*)"))
+                                        .consistencyLevel(ConsistencyLevel.STRONG)
+                                        .build());
+
+        if (response.getQueryResults().isEmpty()) {
+            return 0;
+        }
+
+        return ((Number) response.getQueryResults().getFirst().getEntity().get("count(*)")).intValue();
+    }
+
     // 4.1. 索引确认：核对当前文档版本的条目数量后，业务才可标记索引就绪。
     public void verify(ChatIdentity who, String document, int version, int expected) {
         var response =

@@ -20,6 +20,15 @@ import java.util.*;
 /** Resumes durable receipts and nodes; paid batches reacquire admission through ModelCallClient. */
 @Component
 public class IngestionWorker {
+    /**
+     * 删除后的首次二次扫尾延迟（F12）。
+     *
+     * <p>要覆盖的是"清理已在跑、索引 upsert 还在网络里"的那段窗口。取 60s：远大于一次 Milvus
+     * 写入的正常耗时，又不会让残留留到第二天。实际生效时间还会叠加
+     * {@code CleanupSweeper} 的扫描周期，二者取较晚者。</p>
+     */
+    static final Duration CLEANUP_RECHECK_DELAY = Duration.ofSeconds(60);
+
     private final RagRepository repository;
     private final DocumentStorage storage;
     private final VectorIndex index;
@@ -136,8 +145,13 @@ public class IngestionWorker {
             index.remove(job.identity(), job.id());
             repository.heartbeat(job);
             storage.deleteOriginal(job.path());
-            storage.deleteWork(job.id(), job.version());
+            // F12：清整个文档工作目录。重建索引会让 version 递增，只删当前版本会留下 v1/v2 目录。
+            storage.deleteAllWork(job.id());
             repository.cleanupComplete(job);
+            // F12：同步清理完成不等于干净。删除请求可能正好落在一个已发出的 upsert 中间，
+            // 那次写入会在本方法返回之后才落地。记一笔账，延迟窗口后再扫一次，确认向量真的为 0。
+            repository.scheduleCleanup(job.identity(), job.id(), CLEANUP_RECHECK_DELAY);
+            metrics.counter("rag.cleanup.scheduled").increment();
 
             return;
         }

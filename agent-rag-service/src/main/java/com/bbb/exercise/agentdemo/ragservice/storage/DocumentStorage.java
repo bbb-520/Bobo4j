@@ -174,8 +174,30 @@ public class DocumentStorage {
 
     // 3.1. 工作目录清理：只处理对应文档版本的临时产物。
     public void deleteWork(String document, int version) {
-        Path resolved = work(document, version).toAbsolutePath().normalize();
-        Path allowed = root.resolve("work").toAbsolutePath().normalize();
+        deleteTree(work(document, version), root.resolve("work"));
+    }
+
+    /**
+     * 整文档工作目录清理（F12）。
+     *
+     * <p>重建索引会让 {@code version} 递增，而 {@link #deleteWork} 只删当前版本，此前版本留下的
+     * {@code work/<doc>/v1}、{@code v2} 目录在文档删除后永久残留——用户已经看不到这个文档，
+     * 磁盘上它的解析产物还在。文档级删除必须清到 {@code work/<doc>} 这一层。</p>
+     *
+     * <p>路径校验比单版本更严：只接受标准 UUID 目录名，且解析后的绝对路径必须落在
+     * {@code <root>/work} 之下，避免任何形式的跨文档或跨根目录删除。</p>
+     */
+    public void deleteAllWork(String document) {
+        if (document == null || !document.matches("[a-fA-F0-9-]{36}")) {
+            throw new IllegalArgumentException("Work cleanup path");
+        }
+
+        deleteTree(root.resolve("work").resolve(document), root.resolve("work"));
+    }
+
+    private void deleteTree(Path target, Path allowedRoot) {
+        Path resolved = target.toAbsolutePath().normalize();
+        Path allowed = allowedRoot.toAbsolutePath().normalize();
 
         if (!resolved.startsWith(allowed) || resolved.equals(allowed)) {
             throw new IllegalArgumentException("Work cleanup path");

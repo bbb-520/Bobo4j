@@ -674,6 +674,107 @@ public class RagRepository {
                 });
     }
 
+    /**
+     * 登记一次延迟二次清理（F12）。
+     *
+     * <p>删除要清三处存储：MySQL 元数据/分块、文件系统原件与工作目录、Milvus 向量。三者不在同一事务里，
+     * 而删除请求完全可能落在"索引正在写入向量"的中间——同步清理跑完之后，那个已经发出的 upsert
+     * 才落地，于是刚清干净的文档又冒出孤儿向量。这不是异常路径，是必然会发生的时序。</p>
+     *
+     * <p>所以清理意图要持久化：先记一行账本，等一个延迟窗口（默认见
+     * {@code app.rag.cleanup.recheck-delay}）后再扫一次，用向量计数确认真的为 0 才销账。
+     * 重复调用会刷新时间而不新增行（document_id 是主键）。</p>
+     */
+    public void scheduleCleanup(ChatIdentity who, String document, java.time.Duration delay) {
+        java.sql.Timestamp due = new java.sql.Timestamp(System.currentTimeMillis() + delay.toMillis());
+
+        tx.executeWithoutResult(
+                s -> {
+                    int updated =
+                            db.update(
+                                    "UPDATE rag_cleanup_ledger SET next_attempt_at=?,updated_at=CURRENT_TIMESTAMP(6) WHERE document_id=? AND tenant_id=? AND user_id=?",
+                                    due,
+                                    document,
+                                    who.tenantId(),
+                                    who.userId());
+
+                    if (updated == 0) {
+                        db.update(
+                                "INSERT INTO rag_cleanup_ledger(document_id,tenant_id,user_id,attempts,state,next_attempt_at) VALUES(?,?,?,0,'PENDING',?)",
+                                document,
+                                who.tenantId(),
+                                who.userId(),
+                                due);
+                    }
+                });
+    }
+
+    /**
+     * 取出到期的清理任务，并在同一事务内推后 {@code next_attempt_at} 充当短租约。
+     *
+     * <p>{@code SKIP LOCKED} 让多实例同时扫描时各取各的：没有它会退化成互相等待或重复清理。</p>
+     */
+    public List<CleanupTask> dueCleanups(int limit, java.time.Duration lease) {
+        java.sql.Timestamp until = new java.sql.Timestamp(System.currentTimeMillis() + lease.toMillis());
+
+        return tx.execute(
+                s -> {
+                    var tasks =
+                            db.query(
+                                    "SELECT document_id,tenant_id,user_id,attempts FROM rag_cleanup_ledger WHERE state='PENDING' AND next_attempt_at<=CURRENT_TIMESTAMP(6) ORDER BY next_attempt_at LIMIT ? FOR UPDATE SKIP LOCKED",
+                                    (rs, n) ->
+                                            new CleanupTask(
+                                                    rs.getString("document_id"),
+                                                    rs.getString("tenant_id"),
+                                                    rs.getString("user_id"),
+                                                    rs.getInt("attempts")),
+                                    Math.clamp(limit, 1, 200));
+
+                    for (CleanupTask task : tasks) {
+                        // 只推后下次尝试时间（短租约）：尝试次数在"确认失败"时累加，
+                        // 否则取任务就算一次尝试，成功率会被系统性低估。
+                        db.update(
+                                "UPDATE rag_cleanup_ledger SET next_attempt_at=?,updated_at=CURRENT_TIMESTAMP(6) WHERE document_id=?",
+                                until,
+                                task.documentId());
+                    }
+
+                    return tasks;
+                });
+    }
+
+    /** 确认清理干净：销账。 */
+    public void finishCleanup(String documentId) {
+        db.update("DELETE FROM rag_cleanup_ledger WHERE document_id=?", documentId);
+    }
+
+    /**
+     * 未清干净：累加尝试次数、留痕并重新排期；达到上限转 {@code GAVE_UP}。
+     *
+     * <p>累加与判定放在同一条 UPDATE 里，避免"读 attempts → 判断 → 写回"被并发扫尾插队，
+     * 也避免多实例各自认为"还不到上限"。不无限重试是有意的：反复失败的清理需要人看见，
+     * 而不是永远在后台转，让"有残留"从监控里消失。</p>
+     */
+    public void retryCleanup(CleanupTask task, java.time.Duration delay, int maxAttempts, String error) {
+        java.sql.Timestamp due = new java.sql.Timestamp(System.currentTimeMillis() + delay.toMillis());
+        String trimmed = error == null ? null : error.substring(0, Math.min(error.length(), 500));
+
+        db.update(
+                "UPDATE rag_cleanup_ledger SET attempts=attempts+1,state=CASE WHEN attempts+1>=? THEN 'GAVE_UP' ELSE 'PENDING' END,next_attempt_at=?,last_error=?,updated_at=CURRENT_TIMESTAMP(6) WHERE document_id=?",
+                maxAttempts,
+                due,
+                trimmed,
+                task.documentId());
+    }
+
+    /** 待清理账本条目。 */
+    public record CleanupTask(String documentId, String tenantId, String userId, int attempts) {
+
+        public ChatIdentity identity() {
+            return new ChatIdentity(tenantId, userId, true);
+        }
+    }
+
     // 6. 文档会话：绑定用户选定的文档范围和版本。
     public ConversationView createConversation(ChatIdentity who, List<String> ids) {
         if (ids == null
