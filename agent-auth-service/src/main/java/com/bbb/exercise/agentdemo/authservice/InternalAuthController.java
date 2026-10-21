@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.time.Instant;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /** 服务间认证接口，校验调用签名后提供用户、会话及模型凭据查询。 */
 @RestController
@@ -57,99 +59,132 @@ public class InternalAuthController {
 
     // 1. 内部用户查询：验证服务签名和请求主体后返回公开身份。
     @GetMapping("/users/{userId}")
-    public UserIdentityDto getUser(
+    public Mono<UserIdentityDto> getUser(
             @PathVariable String userId,
             @RequestHeader(value = "X-Internal-Principal") String token) {
-        var principal = verify(token, "GET /internal/auth/users/" + userId);
+        // 身份查询是阻塞的 MyBatis 调用，必须离开 Reactor 的计算/事件循环调度器。
+        return Mono.fromCallable(
+                        () -> {
+                            var principal = verify(token, "GET /internal/auth/users/" + userId);
 
-        assertSubject(principal, userId);
-        String tenantId = principal.tenant();
-        var identity = auth.resolvePublicUser(userId, tenantId);
+                            assertSubject(principal, userId);
+                            String tenantId = principal.tenant();
+                            var identity = auth.resolvePublicUser(userId, tenantId);
 
-        if (identity == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
-        }
+                            if (identity == null) {
+                                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
+                            }
 
-        return new UserIdentityDto(
-                identity.userId(),
-                identity.tenantId(),
-                true,
-                identity.username(),
-                identity.roles(),
-                identity.permissions());
+                            return new UserIdentityDto(
+                                    identity.userId(),
+                                    identity.tenantId(),
+                                    true,
+                                    identity.username(),
+                                    identity.roles(),
+                                    identity.permissions());
+                        })
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     // 2. 内部会话查询：供网关及业务服务确认浏览器身份。
     @GetMapping("/session")
-    public UserIdentityDto session(
+    public Mono<UserIdentityDto> session(
             ServerWebExchange exchange,
             @RequestHeader(value = "X-Internal-Principal") String token) {
-        var principal = verify(token, "GET /internal/auth/session");
+        return Mono.fromCallable(
+                        () -> {
+                            var principal = verify(token, "GET /internal/auth/session");
 
-        if (!"session".equals(principal.subject())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "会话操作主体不匹配");
-        }
+                            if (!"session".equals(principal.subject())) {
+                                throw new ResponseStatusException(
+                                        HttpStatus.FORBIDDEN, "会话操作主体不匹配");
+                            }
 
-        var cookie = exchange.getRequest().getCookies().getFirst(auth.sessionCookieName());
+                            var cookie =
+                                    exchange.getRequest()
+                                            .getCookies()
+                                            .getFirst(auth.sessionCookieName());
 
-        if (cookie == null || cookie.getValue().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "会话无效");
-        }
+                            if (cookie == null || cookie.getValue().isBlank()) {
+                                throw new ResponseStatusException(
+                                        HttpStatus.UNAUTHORIZED, "会话无效");
+                            }
 
-        var identity = auth.resolveSessionToken(cookie.getValue());
+                            var identity = auth.resolveSessionToken(cookie.getValue());
 
-        if (identity == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "会话无效");
-        }
+                            if (identity == null) {
+                                throw new ResponseStatusException(
+                                        HttpStatus.UNAUTHORIZED, "会话无效");
+                            }
 
-        if (!identity.tenantId().equals(principal.tenant())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "会话租户不匹配");
-        }
+                            if (!identity.tenantId().equals(principal.tenant())) {
+                                throw new ResponseStatusException(
+                                        HttpStatus.FORBIDDEN, "会话租户不匹配");
+                            }
 
-        return new UserIdentityDto(
-                identity.userId(),
-                identity.tenantId(),
-                true,
-                identity.username(),
-                identity.roles(),
-                identity.permissions());
+                            return new UserIdentityDto(
+                                    identity.userId(),
+                                    identity.tenantId(),
+                                    true,
+                                    identity.username(),
+                                    identity.roles(),
+                                    identity.permissions());
+                        })
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     // 3. 内部凭据查询：凭据仅经签名内部协议交给受信调用者。
     @GetMapping("/users/{userId}/api-key")
-    public UserApiKeyService.UserApiKeys apiKey(
+    public Mono<UserApiKeyService.UserApiKeys> apiKey(
             @PathVariable String userId, @RequestHeader("X-Internal-Principal") String token) {
-        var principal = verify(token, "GET /internal/auth/users/" + userId + "/api-key");
+        return Mono.fromCallable(
+                        () -> {
+                            var principal =
+                                    verify(
+                                            token,
+                                            "GET /internal/auth/users/" + userId + "/api-key");
 
-        assertSubject(principal, userId);
-        var identity = auth.identityForPublicUser(userId, principal.tenant());
+                            assertSubject(principal, userId);
+                            var identity = auth.identityForPublicUser(userId, principal.tenant());
 
-        if (identity == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
-        }
+                            if (identity == null) {
+                                throw new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "用户不存在");
+                            }
 
-        return userKeys.get(identity);
+                            return userKeys.get(identity);
+                        })
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     // 3.1. 内部模型查询：按能力解析配置，并核对签名主体与目标用户。
     @GetMapping("/users/{userId}/model-profiles/{capability}")
-    public ModelProfileService.SelectedModel model(
+    public Mono<ModelProfileService.SelectedModel> model(
             @PathVariable String userId,
             @PathVariable String capability,
             @RequestHeader("X-Internal-Principal") String token) {
-        var principal =
-                verify(
-                        token,
-                        "GET /internal/auth/users/" + userId + "/model-profiles/" + capability);
+        return Mono.fromCallable(
+                        () -> {
+                            var principal =
+                                    verify(
+                                            token,
+                                            "GET /internal/auth/users/"
+                                                    + userId
+                                                    + "/model-profiles/"
+                                                    + capability);
 
-        assertSubject(principal, userId);
-        var identity = auth.identityForPublicUser(userId, principal.tenant());
+                            assertSubject(principal, userId);
+                            var identity = auth.identityForPublicUser(userId, principal.tenant());
 
-        if (identity == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
-        }
+                            if (identity == null) {
+                                throw new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "用户不存在");
+                            }
 
-        return modelProfiles.resolve(identity, ModelCapability.parse(capability));
+                            return modelProfiles.resolve(
+                                    identity, ModelCapability.parse(capability));
+                        })
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     // 4. 调用边界：验证签名、目标服务及请求作用域，阻止重放到其他接口。
