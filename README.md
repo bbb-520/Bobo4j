@@ -253,7 +253,7 @@ MCP 客户端位于独立的 [`agent-mcp`](agent-mcp/src/main) 库模块，随�
 | 范围 | 方式 | 结果说明 |
 | --- | --- | --- |
 | 公开核心源码 | `mvn -B -Dmaven.compiler.fork=true -DskipTests package` | 验证干净克隆可编译、打包 |
-| 本地业务与架构回归 | 使用本地完整测试资料与聚合 POM 执行 `clean verify` | 测试与架构模块不随公开源码提供；结果按任务记录 |
+| 本地业务与架构回归 | `mvn -f agent-architecture-tests/gate/pom.xml '-Dmaven.compiler.fork=true' test` | 本地聚合器把公开模块与架构门禁放进同一 reactor；根 `pom.xml` 不含门禁模块，根目录 `verify` 不执行门禁；结果按任务记录 |
 | 本地统一验证 | `python scripts/verify-local.py --stage all --out tmp/verify-新编号` | 仅完整本地工作区提供；串行运行后端、前端和维护检查，失败即停，输出独立日志及源码摘要；不调用收费模型 |
 | 依赖环境的集成测试 | 准备隔离 MySQL、Milvus 或相应外部服务后启用 | 分别列出通过、失败与环境跳过；H2 回归不能替代真实并发验证 |
 | 真实模型评测 | 固定模型与样本，单独记录质量、耗时和实际用量 | 本地 mock 与保守预算不代表供应商实测 Token、费用或线上验收 |

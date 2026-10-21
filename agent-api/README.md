@@ -67,10 +67,13 @@
 在仓库根目录执行：
 
 ```powershell
+# 公开源码构建（不含架构门禁：门禁模块与测试源码不随公开源码发布）
 mvn -pl agent-api -am '-Dmaven.compiler.fork=true' package
-mvn -f /path/to/local-verification-pom.xml -pl agent-architecture-tests -am '-Dmaven.compiler.fork=true' test
+
+# 本地完整门禁（公开模块 + agent-architecture-tests，仅完整本地工作区可用）
+mvn -f agent-architecture-tests/gate/pom.xml '-Dmaven.compiler.fork=true' test
 ```
 
-本模块没有独立测试源码，实际协议行为由 Chat、Runtime、Auth、RAG 等消费方测试覆盖，架构模块检查死契约和边界。变更共享字段后，应运行完整 reactor 的 `verify`。
+本模块没有独立测试源码，实际协议行为由 Chat、Runtime、Auth、RAG 等消费方测试覆盖，架构模块检查死契约和边界。变更共享字段后，应运行上面的本地完整门禁。根聚合器的 `mvn verify` **不含**架构门禁（门禁模块不在其 `<modules>` 中），`mvn -pl agent-architecture-tests -am test` 也会因为在根 reactor 中找不到该模块而失败，两条都不能替代本地聚合器。
 
 相关说明：[公共基础能力](../agent-common/README.md)、[运行时客户端](../agent-runtime/README.md)、[文档检索](../agent-rag-service/README.md)。
