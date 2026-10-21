@@ -244,62 +244,208 @@ public class OssStorageService {
     }
 
     // 5. 供应商结果转存：校验远端地址和下载内容后复制到业务预定对象位置。
+    /**
+     * 把供应商结果落成受控对象。两条输入通道共用同一套边界：
+     *
+     * <ol>
+     *   <li>体积：data URL 先按编码长度预估，再按实际解码字节计数；HTTP 同时校验声明长度与实际读取量。
+     *   <li>内容：落盘后按字节特征判定真实格式与像素尺寸，不信任 data URL 或上游的 MIME 声明。
+     *   <li>失败：任何异常都关闭流、删除临时文件，不产生对象上传副作用。
+     * </ol>
+     */
     public void copyRemoteImageToObject(String remoteUrl, String objectKey)
             throws IOException, InterruptedException {
         requireConfigured();
+        long maxBytes = properties.getMaxObjectBytes();
         Path temporary = Files.createTempFile("bbb-image-output-", ".bin");
 
         try {
             if (remoteUrl != null && remoteUrl.startsWith("data:")) {
-                int comma = remoteUrl.indexOf(',');
-
-                if (comma < 0) {
-                    throw new IOException("图片结果 data URL 无效");
-                }
-
-                Files.write(temporary, Base64.getDecoder().decode(remoteUrl.substring(comma + 1)));
+                writeDataUrl(remoteUrl, temporary, maxBytes);
             } else {
-                URI uri = validateRemoteUri(remoteUrl);
-                HttpRequest request =
-                        HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build();
-                HttpClient httpClient =
-                        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-                HttpResponse<InputStream> response =
-                        httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-
-                if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    response.body().close();
-                    throw new IOException("下载图片结果失败，HTTP " + response.statusCode());
-                }
-
-                long declared = response.headers().firstValueAsLong("content-length").orElse(-1L);
-
-                if (declared > properties.getMaxObjectBytes()) {
-                    response.body().close();
-                    throw new IOException("远程图片超过大小限制");
-                }
-
-                try (InputStream input = response.body();
-                        var output = Files.newOutputStream(temporary)) {
-                    byte[] buffer = new byte[8192];
-                    long total = 0;
-                    int read;
-
-                    while ((read = input.read(buffer)) >= 0) {
-                        total += read;
-
-                        if (total > properties.getMaxObjectBytes()) {
-                            throw new IOException("远程图片超过大小限制");
-                        }
-
-                        output.write(buffer, 0, read);
-                    }
-                }
+                downloadRemote(remoteUrl, temporary, maxBytes);
             }
 
-            putFile(objectKey, temporary, "image/png");
+            long size = Files.size(temporary);
+
+            if (size <= 0) {
+                throw new PermanentDeliveryException("图片结果为空内容");
+            }
+
+            if (size > maxBytes) {
+                throw new PermanentDeliveryException("图片结果超过大小限制");
+            }
+
+            ImageFormatSniffer.ImageFormat format = ImageFormatSniffer.detect(temporary);
+
+            if (format == null) {
+                throw new PermanentDeliveryException("图片结果不是受支持的图片格式");
+            }
+
+            if (format.exceedsLimits()) {
+                throw new PermanentDeliveryException("图片结果像素尺寸超出限制");
+            }
+
+            // 上传时使用嗅探出的真实类型，而不是固定 image/png。
+            putFile(objectKey, temporary, format.mime());
         } finally {
             Files.deleteIfExists(temporary);
+        }
+    }
+
+    /** data URL 通道：协议、媒体类型、Base64 格式与长度全部前置校验，解码过程仍然有界。 */
+    private void writeDataUrl(String dataUrl, Path target, long maxBytes) throws IOException {
+        int comma = dataUrl.indexOf(',');
+
+        if (comma < 0) {
+            throw new PermanentDeliveryException("图片结果 data URL 无效");
+        }
+
+        String header = dataUrl.substring("data:".length(), comma);
+
+        if (!header.toLowerCase(Locale.ROOT).endsWith(";base64")) {
+            throw new PermanentDeliveryException("图片结果 data URL 必须使用 Base64 编码");
+        }
+
+        String declared =
+                header.substring(0, header.length() - ";base64".length());
+
+        if (!ImageFormatSniffer.isAllowedDeclaredType(declared)) {
+            throw new PermanentDeliveryException("图片结果 data URL 媒体类型不受支持");
+        }
+
+        int payloadStart = comma + 1;
+        int encodedLength = dataUrl.length() - payloadStart;
+
+        // 每个 3 字节对应 4 个 Base64 字符；先按上界拒绝，避免为超限内容分配解码缓冲。
+        long maxEncoded = ((maxBytes + 2) / 3) * 4 + 4;
+
+        if (encodedLength <= 0) {
+            throw new PermanentDeliveryException("图片结果 data URL 缺少内容");
+        }
+
+        if (encodedLength > maxEncoded) {
+            throw new PermanentDeliveryException("图片结果超过大小限制");
+        }
+
+        try (InputStream raw = new Base64PayloadStream(dataUrl, payloadStart);
+                InputStream decoded = Base64.getDecoder().wrap(raw)) {
+            copyBounded(decoded, target, maxBytes);
+        } catch (IllegalArgumentException invalidBase64) {
+            throw new PermanentDeliveryException("图片结果 Base64 解码失败", invalidBase64);
+        }
+    }
+
+    /** HTTP 通道：内网地址与跳转策略不变，声明长度与实际读取量双重限制。 */
+    private void downloadRemote(String remoteUrl, Path target, long maxBytes)
+            throws IOException, InterruptedException {
+        URI uri = validateRemoteUri(remoteUrl);
+        HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build();
+        HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpResponse<InputStream> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        int status = response.statusCode();
+
+        try (InputStream input = response.body()) {
+            if (status < 200 || status >= 300) {
+                throw httpFailure(status);
+            }
+
+            long declared = response.headers().firstValueAsLong("content-length").orElse(-1L);
+
+            if (declared > maxBytes) {
+                throw new PermanentDeliveryException("远程图片超过大小限制");
+            }
+
+            copyBounded(input, target, maxBytes);
+        }
+    }
+
+    /**
+     * 把 HTTP 状态映射为交付错误类型：4xx（除 408/429）是确定性拒绝，
+     * 5xx、408 与 429 属于可重试的瞬态故障。
+     */
+    static IOException httpFailure(int status) {
+        if (status >= 400 && status < 500 && status != 408 && status != 429) {
+            return new PermanentDeliveryException("下载图片结果被拒绝，HTTP " + status);
+        }
+
+        return new IOException("下载图片结果失败，HTTP " + status);
+    }
+
+    /** 有界拷贝：实际字节数超过上限立即终止，不依赖上游声明。 */
+    private static void copyBounded(InputStream input, Path target, long maxBytes) throws IOException {
+        try (var output = Files.newOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            long total = 0;
+            int read;
+
+            while ((read = input.read(buffer)) >= 0) {
+                total += read;
+
+                if (total > maxBytes) {
+                    throw new PermanentDeliveryException("图片结果超过大小限制");
+                }
+
+                output.write(buffer, 0, read);
+            }
+        }
+    }
+
+    /** 把 data URL 载荷当作 Base64 字符流，拒绝任何非 Base64 字节，避免整段复制。 */
+    private static final class Base64PayloadStream extends InputStream {
+        private final String source;
+        private int index;
+
+        Base64PayloadStream(String source, int start) {
+            this.source = source;
+            this.index = start;
+        }
+
+        @Override
+        public int read() throws IOException {
+            while (index < source.length()) {
+                char value = source.charAt(index++);
+
+                if (value == '\n' || value == '\r' || value == ' ' || value == '\t') {
+                    continue;
+                }
+
+                boolean base64 =
+                        (value >= 'A' && value <= 'Z')
+                                || (value >= 'a' && value <= 'z')
+                                || (value >= '0' && value <= '9')
+                                || value == '+'
+                                || value == '/'
+                                || value == '=';
+
+                if (!base64) {
+                    throw new PermanentDeliveryException("图片结果 Base64 含非法字符");
+                }
+
+                return value;
+            }
+
+            return -1;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            if (length == 0) {
+                return 0;
+            }
+
+            for (int i = 0; i < length; i++) {
+                int value = read();
+
+                if (value < 0) {
+                    return i == 0 ? -1 : i;
+                }
+
+                buffer[offset + i] = (byte) value;
+            }
+
+            return length;
         }
     }
 
