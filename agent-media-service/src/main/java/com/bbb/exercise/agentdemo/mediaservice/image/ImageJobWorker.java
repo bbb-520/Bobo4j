@@ -48,6 +48,18 @@ public class ImageJobWorker {
     @Value("${app.image-jobs.parallelism:2}")
     private int parallelism = 2;
 
+    /** 交付阶段（已有回执后）的最大重试次数，到达后进入可查询终态。 */
+    @Value("${app.image-jobs.delivery-max-attempts:6}")
+    private int deliveryMaxAttempts = 6;
+
+    /** 交付重试的指数退避基数。 */
+    @Value("${app.image-jobs.delivery-backoff-base:30s}")
+    private Duration deliveryBackoffBase = Duration.ofSeconds(30);
+
+    /** 交付重试的退避上限。 */
+    @Value("${app.image-jobs.delivery-backoff-max:10m}")
+    private Duration deliveryBackoffMax = Duration.ofMinutes(10);
+
     private Semaphore slots;
     private ThreadPoolExecutor executor;
 
@@ -242,11 +254,25 @@ public class ImageJobWorker {
             }
 
             if (receipt != null) {
+                // 回执已持久化：只重做"转存/核对"，绝不再调用供应商。
                 if (error instanceof org.springframework.web.server.ResponseStatusException response
                         && response.getStatusCode().is4xxClientError()) {
                     jobs.fail(job.id(), owner, "结果结算状态冲突，请联系管理员核对", 1);
+                } else if (permanentDelivery(error)) {
+                    // 结果地址或内容永久不可交付：重试同一份回执不会改变结论。
+                    jobs.abandonDelivery(
+                            job.id(),
+                            owner,
+                            "结果无法交付（" + error.getMessage() + "），已保留供应商回执供人工核对");
                 } else {
-                    jobs.defer(job.id(), owner);
+                    // 瞬态故障：有界退避；到达上限后转终态并释放准入名额。
+                    jobs.recordDeliveryFailure(
+                            job.id(),
+                            owner,
+                            deliveryMaxAttempts,
+                            deliveryBackoffBase,
+                            deliveryBackoffMax,
+                            "结果交付多次失败，已保留供应商回执供人工核对");
                 }
 
                 return;
@@ -275,8 +301,18 @@ public class ImageJobWorker {
         }
     }
 
-    private static boolean rateLimited(Throwable error) {
+    /** 交付失败是否属于"重试也不会成功"的类别，需要沿 cause 链判断。 */
+    private static boolean permanentDelivery(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof com.bbb.exercise.agentdemo.runtime.storage.PermanentDeliveryException) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean rateLimited(Throwable error) {        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
             if (cause instanceof org.springframework.web.server.ResponseStatusException response
                     && response.getStatusCode().value() == 429) return true;
         }

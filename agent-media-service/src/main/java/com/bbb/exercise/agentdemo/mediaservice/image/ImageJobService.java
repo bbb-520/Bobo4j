@@ -301,6 +301,135 @@ public class ImageJobService {
                 owner);
     }
 
+    // 2.3. 交付失败：已有回执后的失败必须有终点，不能每 30 秒永久回队列。
+    /**
+     * 记录一次"已有供应商回执但交付未成功"的失败。
+     *
+     * <p>在 {@code maxAttempts} 次以内按指数退避重新排队；达到上限后进入终态
+     * {@code FAILED}，但 {@code result_ready} 保持 TRUE —— 回执必须留给人工核对，
+     * 既不能删掉，也不能因此触发第二次供应商调用。
+     *
+     * <p>进入终态后 {@code status} 不再是 QUEUED/PROCESSING，因此用户与全局准入名额随之释放；
+     * 资金占用不在此处自动退款或清零，由对账流程处理。
+     */
+    public DeliveryOutcome recordDeliveryFailure(
+            String jobId,
+            String owner,
+            int maxAttempts,
+            Duration baseBackoff,
+            Duration maxBackoff,
+            String terminalMessage) {
+        List<Integer> current =
+                jdbc.query(
+                        "SELECT delivery_attempts FROM image_job WHERE id=? AND status='PROCESSING' AND lease_owner=?",
+                        (rs, rowNum) -> rs.getInt("delivery_attempts"),
+                        jobId,
+                        owner);
+
+        if (current.isEmpty()) {
+            return DeliveryOutcome.IGNORED;
+        }
+
+        int attempt = current.getFirst() + 1;
+        int limit = Math.max(1, maxAttempts);
+
+        if (attempt >= limit) {
+            return abandonDelivery(jobId, owner, terminalMessage, attempt)
+                    ? DeliveryOutcome.ABANDONED
+                    : DeliveryOutcome.IGNORED;
+        }
+
+        long delay = backoffSeconds(baseBackoff, attempt, maxBackoff);
+        int updated =
+                jdbc.update(
+                        "UPDATE image_job SET status='QUEUED',delivery_attempts=?,"
+                                + "next_retry_at=TIMESTAMPADD(SECOND,?,NOW(3)),updated_at=NOW(3),"
+                                + "lease_owner=NULL,lease_until=NULL "
+                                + "WHERE id=? AND status='PROCESSING' AND lease_owner=?",
+                        attempt,
+                        delay,
+                        jobId,
+                        owner);
+
+        if (updated != 1) {
+            return DeliveryOutcome.IGNORED;
+        }
+
+        log.info(
+                "[image-job] delivery_retry_scheduled jobId={} attempt={}/{} delaySeconds={}",
+                jobId,
+                attempt,
+                limit,
+                delay);
+        return DeliveryOutcome.RETRY_SCHEDULED;
+    }
+
+    /**
+     * 永久交付失败：结果地址或内容本身不可交付，重试同一份回执不会改变结论。
+     *
+     * <p>直接进入终态并保留回执，供核对入口查询；不删除回执、不重新生成、不自动退款。
+     */
+    public boolean abandonDelivery(String jobId, String owner, String message) {
+        return abandonDelivery(jobId, owner, message, null);
+    }
+
+    private boolean abandonDelivery(String jobId, String owner, String message, Integer attempt) {
+        String safe = sanitize(message);
+
+        int updated =
+                jdbc.update(
+                        "UPDATE image_job SET status='FAILED',"
+                                + (attempt == null ? "delivery_attempts=delivery_attempts+1," : "delivery_attempts=?,")
+                                + "error_message=?,completed_at=NOW(3),updated_at=NOW(3),"
+                                + "next_retry_at=NULL,lease_owner=NULL,lease_until=NULL "
+                                + "WHERE id=? AND status='PROCESSING' AND lease_owner=? AND result_ready=TRUE",
+                        attempt == null
+                                ? new Object[] {safe, jobId, owner}
+                                : new Object[] {attempt, safe, jobId, owner});
+
+        if (updated != 1) {
+            log.warn(
+                    "[image-job] delivery_abandon_ignored jobId={} reason=unexpected_status",
+                    jobId);
+            return false;
+        }
+
+        log.warn(
+                "[image-job] delivery_abandoned jobId={} receiptRetained=true error={}",
+                jobId,
+                safe);
+        return true;
+    }
+
+    /** 指数退避，次数越多间隔越长，并受上限约束避免无限等待。 */
+    private static long backoffSeconds(Duration base, int attempt, Duration max) {
+        long baseSeconds = Math.max(1, base == null ? 30 : base.toSeconds());
+        long maxSeconds = Math.max(baseSeconds, max == null ? 600 : max.toSeconds());
+        long delay = baseSeconds;
+
+        for (int i = 1; i < attempt && delay < maxSeconds; i++) {
+            delay = delay * 2;
+        }
+
+        return Math.min(delay, maxSeconds);
+    }
+
+    private static String sanitize(String message) {
+        String safe = message == null ? "图片交付失败" : message.replaceAll("[\\r\\n]+", " ");
+
+        return safe.length() > 1000 ? safe.substring(0, 1000) : safe;
+    }
+
+    /** 交付恢复的处理结果，供调用方决定日志级别与后续动作。 */
+    public enum DeliveryOutcome {
+        /** 已按退避重新排队，回执保留。 */
+        RETRY_SCHEDULED,
+        /** 已达上限，转入终态并保留回执供人工核对。 */
+        ABANDONED,
+        /** 租约或状态已变化，本次处理无效。 */
+        IGNORED
+    }
+
     // 3. 供应商回执：优先保存生成 URL、请求 ID 和用量，后续失败不必重新生成。
     /** The single dispatched provider call may finish after lease takeover; preserve its receipt for the new owner. */
     public void recordResult(
