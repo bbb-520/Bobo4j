@@ -25,6 +25,7 @@ public class AuthService {
     private final PasswordHasher passwords;
     private final AppProperties properties;
     private final RbacService rbac;
+    private final LoginThrottle loginThrottle;
 
     @Autowired
     public AuthService(
@@ -32,12 +33,14 @@ public class AuthService {
             AuthSessionMapper sessions,
             PasswordHasher passwords,
             AppProperties properties,
-            RbacService rbac) {
+            RbacService rbac,
+            LoginThrottle loginThrottle) {
         this.users = users;
         this.sessions = sessions;
         this.passwords = passwords;
         this.properties = properties;
         this.rbac = rbac;
+        this.loginThrottle = loginThrottle;
     }
 
     /** Identity-only embedding constructor; Spring always injects the full authorization service. */
@@ -46,7 +49,16 @@ public class AuthService {
             AuthSessionMapper sessions,
             PasswordHasher passwords,
             AppProperties properties) {
-        this(users, sessions, passwords, properties, null);
+        this(users, sessions, passwords, properties, null, null);
+    }
+
+    public AuthService(
+            AppUserMapper users,
+            AuthSessionMapper sessions,
+            PasswordHasher passwords,
+            AppProperties properties,
+            RbacService rbac) {
+        this(users, sessions, passwords, properties, rbac, null);
     }
 
     // 1. 账户持久化：校验注册字段，保存密码哈希并生成稳定的公开用户 ID。
@@ -72,9 +84,29 @@ public class AuthService {
     }
 
     // 2. 密码登录：验证账户凭据后，统一走会话签发流程。
-    @Transactional
     public LoginResult login(String username, String password) {
+        return login(username, password, null);
+    }
+
+    /**
+     * 密码登录，并带上调用来源以便按账户与来源两个维度限制撞库。
+     *
+     * <p>预算在触达数据库和 BCrypt 之前占用：QPS 额度内的持续撞库既不会放大数据库压力，也不会反复
+     * 触发昂贵的密码哈希校验。校验成功后清零账户维度预算。
+     */
+    @Transactional
+    public LoginResult login(String username, String password, String source) {
         validate(username, password);
+
+        Long retryAfter =
+                loginThrottle == null ? null : loginThrottle.acquire(username, source);
+
+        if (retryAfter != null) {
+            // 账户是否存在都走到这里，响应不区分未知账户。
+            throw new AuthException(
+                    429, "登录尝试过于频繁，请在 " + Math.max(1L, retryAfter) + " 秒后重试");
+        }
+
         var e =
                 users.selectOne(
                         new LambdaQueryWrapper<AppUserEntity>()
@@ -82,6 +114,10 @@ public class AuthService {
 
         if (e == null || !passwords.matches(password, e.getPasswordHash())) {
             throw new AuthException(401, "用户名或密码错误");
+        }
+
+        if (loginThrottle != null) {
+            loginThrottle.resetAccount(username);
         }
 
         return issueSession(new User(e.getId(), e.getUsername(), e.getPasswordHash()));

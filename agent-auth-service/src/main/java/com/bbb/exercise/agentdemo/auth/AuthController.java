@@ -21,16 +21,19 @@ public class AuthController {
     private final AccountService accounts;
     private final QqEmailService codes;
     private final EmailRequestSource source;
+    private final LoginThrottle loginThrottle;
 
     public AuthController(
             AuthService auth,
             AccountService accounts,
             QqEmailService codes,
-            EmailRequestSource source) {
+            EmailRequestSource source,
+            LoginThrottle loginThrottle) {
         this.auth = auth;
         this.accounts = accounts;
         this.codes = codes;
         this.source = source;
+        this.loginThrottle = loginThrottle;
     }
 
     // 1. 注册入口：创建账户后返回注册结果，会话由后续登录流程签发。
@@ -63,7 +66,10 @@ public class AuthController {
         return Mono.fromCallable(
                         () -> {
                             AuthService.LoginResult result =
-                                    auth.login(body.username(), body.password());
+                                    auth.login(
+                                            body.username(),
+                                            body.password(),
+                                            loginThrottle.source(exchange));
 
                             exchange.getResponse()
                                     .addCookie(cookie(exchange, result.token(), auth.sessionTtl()));

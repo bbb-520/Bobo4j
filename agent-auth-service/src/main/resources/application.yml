@@ -101,3 +101,11 @@ app:
     anonymous-cookie-name: ${ANONYMOUS_COOKIE_NAME:bbb_agent_anonymous_id}
     session-cookie-name: ${SESSION_COOKIE_NAME:bbb_agent_session}
     default-tenant-id: ${DEFAULT_TENANT_ID:local}
+    # 密码登录防滥用：账户与来源两个维度的固定窗口尝试预算，窗口到期自动解除，不会永久锁定账户。
+    # trusted-proxies 默认为空，即只使用 TCP 直连地址，不读取 X-Forwarded-For。
+    login-throttle:
+      enabled: ${LOGIN_THROTTLE_ENABLED:true}
+      account-limit: ${LOGIN_THROTTLE_ACCOUNT_LIMIT:10}
+      source-limit: ${LOGIN_THROTTLE_SOURCE_LIMIT:30}
+      window-seconds: ${LOGIN_THROTTLE_WINDOW_SECONDS:900}
+      trusted-proxies: ${LOGIN_THROTTLE_TRUSTED_PROXIES:}
