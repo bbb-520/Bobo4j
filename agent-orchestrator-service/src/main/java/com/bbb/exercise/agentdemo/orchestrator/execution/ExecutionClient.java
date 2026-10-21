@@ -1,6 +1,7 @@
 package com.bbb.exercise.agentdemo.orchestrator.execution;
 
 import com.bbb.exercise.agentdemo.api.identity.ChatIdentity;
+import com.bbb.exercise.agentdemo.common.trace.Correlation;
 import com.bbb.exercise.agentdemo.common.security.PrincipalKeyRing;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -60,6 +61,7 @@ public class ExecutionClient {
                                         targets.get(target)
                                                 .post()
                                                 .uri(path)
+                                                .headers(h -> Correlation.outgoingHeaders().forEach(h::set))
                                                 .header(
                                                         "X-Internal-Principal",
                                                         keys.sign(
@@ -92,6 +94,7 @@ public class ExecutionClient {
                                         targets.get(target)
                                                 .get()
                                                 .uri(path)
+                                                .headers(h -> Correlation.outgoingHeaders().forEach(h::set))
                                                 .header(
                                                         "X-Internal-Principal",
                                                         keys.sign(
@@ -128,7 +131,7 @@ public class ExecutionClient {
                                 targets.get(target)
                                         .post()
                                         .uri(path)
-                                        .header(
+                                        .headers(h -> Correlation.outgoingHeaders().forEach(h::set)).header(
                                                 "X-Internal-Principal",
                                                 keys.sign(
                                                         "agent-orchestrator-service",

@@ -55,3 +55,7 @@ management:
     web:
       exposure:
         include: health,info,metrics,prometheus
+logging:
+  pattern:
+    # F14：关联字段进日志。空值显示为空而不是 "null"。
+    console: "%d{ISO8601} %-5level [%X{requestId:-}] [%X{traceId:-}] [%X{executionId:-}] [%X{callId:-}] %logger{36} - %msg%n"

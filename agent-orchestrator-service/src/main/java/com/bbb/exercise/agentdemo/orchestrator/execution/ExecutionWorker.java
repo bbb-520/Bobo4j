@@ -21,6 +21,10 @@ public class ExecutionWorker {
     private final McpToolExecutor mcpExecutor;
     private final ContextAssembler contextAssembler;
     private final MeterRegistry metrics;
+
+    /** 队列滞留秒数缓存（F14），由 {@link #refreshQueueGauge()} 周期性刷新。 */
+    private final java.util.concurrent.atomic.AtomicLong queuedSeconds =
+            new java.util.concurrent.atomic.AtomicLong();
     private final io.micrometer.observation.ObservationRegistry observations;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore capacity = new Semaphore(4);
@@ -52,6 +56,24 @@ public class ExecutionWorker {
         this.toolRegistry=toolRegistry;
         this.mcpExecutor=mcpExecutor;
         this.contextAssembler=contextAssembler;
+        // F14：队列滞留 gauge。用 AtomicLong 缓存，gauge 读缓存而不是每次抓取都查库——
+        // 否则"为了观测而增加的查询"自己就会变成新的放大源。
+        io.micrometer.core.instrument.Gauge.builder(
+                        "agent.execution.queue.oldest", queuedSeconds, java.util.concurrent.atomic.AtomicLong::get)
+                .description("最老 QUEUED 任务的等待秒数（数据库时钟）")
+                .register(metrics);
+    }
+
+    /**
+     * 刷新队列滞留（F14）。默认 30s 一次，与告警的 for 窗口错开，避免瞬时抖动直接触发告警。
+     */
+    @Scheduled(fixedDelayString = "${app.execution.queue-gauge-ms:30000}")
+    public void refreshQueueGauge() {
+        try {
+            queuedSeconds.set((long) store.oldestQueuedSeconds());
+        } catch (Exception unavailable) {
+            metrics.counter("agent.execution.worker.errors", "phase", "queue-gauge").increment();
+        }
     }
 
     // 1. 后台调度：先取得本机并发名额，再领取数据库租约。
@@ -107,6 +129,13 @@ public class ExecutionWorker {
             }
 
             paid = !store.unfinishedSteps(lease.identity(), lease.executionId()).isEmpty();
+
+            // F14：恢复计数。只有"接手一个已经有进度的任务"才算恢复——
+            // 每个任务都会走这里，无条件计数会把"恢复"稀释成"派发"，告警永远不响。
+            if (recovering.view().roundsUsed() > 0 || paid) {
+                metrics.counter("agent.execution.recoveries").increment();
+            }
+
             // 2.1. 恢复优先：先核对未完成的付费步骤，避免重启后再次派发同一调用。
             steps.recoverPending(lease, recovering);
             var finalReceipt =
