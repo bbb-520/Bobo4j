@@ -118,11 +118,21 @@ public class InternalMediaController {
 
                             attachment.setAssetId(request.assetId());
 
-                            return jobs.create(
-                                    new ChatIdentity(principal.tenant(), principal.subject(), true),
-                                    request.conversationId(),
-                                    request.prompt(),
-                                    java.util.List.of(attachment));
+                            var identity = new ChatIdentity(principal.tenant(), principal.subject(), true);
+
+                            // 带键请求进入媒体服务已有的幂等通道；无键请求保持旧行为，只记录为已知限制。
+                            return request.requestId() == null
+                                    ? jobs.create(
+                                            identity,
+                                            request.conversationId(),
+                                            request.prompt(),
+                                            java.util.List.of(attachment))
+                                    : jobs.create(
+                                            identity,
+                                            request.requestId(),
+                                            request.conversationId(),
+                                            request.prompt(),
+                                            java.util.List.of(attachment));
                         })
                 .subscribeOn(Schedulers.boundedElastic());
     }
@@ -140,6 +150,15 @@ public class InternalMediaController {
     public record RemoteAsset(
             String assetId, String objectKey, String mimeType, long fileSize, String downloadUrl) {}
 
-    /** 服务间图片任务创建参数，将会话、提示词与素材资产关联。 */
-    public record CreateJobRequest(String conversationId, String prompt, String assetId) {}
+    /**
+     * 服务间图片任务创建参数，将会话、提示词与素材资产关联。
+     *
+     * <p>{@code requestId} 是旧聊天入口透传的客户端幂等键，允许为空以兼容旧客户端。
+     */
+    public record CreateJobRequest(
+            String conversationId, String prompt, String assetId, String requestId) {
+        public CreateJobRequest(String conversationId, String prompt, String assetId) {
+            this(conversationId, prompt, assetId, null);
+        }
+    }
 }

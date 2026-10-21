@@ -202,11 +202,27 @@ public class InternalServiceClient {
     // 3.2. 图片任务协议：传递用户和租户作用域创建异步生成任务。
     public Mono<MediaJobView> createMediaJob(
             String conversationId, String prompt, String assetId, String subject, String tenant) {
+        return createMediaJob(conversationId, prompt, assetId, subject, tenant, null);
+    }
+
+    /**
+     * 旧聊天入口创建图片任务。
+     *
+     * <p>{@code requestId} 为客户端幂等键，允许为空以兼容不传该字段的旧客户端；非空时媒体服务会把它
+     * 作为任务身份，重复提交命中同一任务而不是第二次付费生成。
+     */
+    public Mono<MediaJobView> createMediaJob(
+            String conversationId,
+            String prompt,
+            String assetId,
+            String subject,
+            String tenant,
+            String requestId) {
         return postMedia(
                 "/internal/media/image-jobs",
                 subject,
                 tenant,
-                new CreateMediaJobRequest(conversationId, prompt, assetId),
+                new CreateMediaJobRequest(conversationId, prompt, assetId, requestId),
                 MediaJobView.class);
     }
 
@@ -296,7 +312,12 @@ public class InternalServiceClient {
     public record PublishSource(String jobId, String outputObjectKey, String prompt) {}
 
     /** 跨服务图片任务请求，将会话、生成提示词与素材资产关联。 */
-    public record CreateMediaJobRequest(String conversationId, String prompt, String assetId) {}
+    public record CreateMediaJobRequest(
+            String conversationId, String prompt, String assetId, String requestId) {
+        public CreateMediaJobRequest(String conversationId, String prompt, String assetId) {
+            this(conversationId, prompt, assetId, null);
+        }
+    }
 
     public record ZineRequest(String requestId, String imageReference, String mode,
                               String language, String prompt, String rationale) {

@@ -30,6 +30,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ChatService {
     private static final int MAX_QUESTION_CODE_POINTS = 4000;
     private static final String DEFAULT_PROMPT = "请根据这张照片进行一次有创意的二次生成。";
+    private static final java.util.regex.Pattern UUID_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     private final ConversationPersistenceService conversations;
     private final InternalServiceClient mediaClient;
@@ -45,12 +48,24 @@ public class ChatService {
     // 2. 单轮分流：按输入和图片意图选择文字回答、图片识别或异步图片生成。
     public Flux<ChatEventVO> chat(
             String question, ConversationSession session, List<ChatAttachmentRequest> attachments) {
-        return chat(question, session, attachments, false);
+        return chat(question, session, attachments, false, null);
     }
 
     public Flux<ChatEventVO> chat(
             String question, ConversationSession session, List<ChatAttachmentRequest> attachments,
             boolean imageGenerationConfirmed) {
+        return chat(question, session, attachments, imageGenerationConfirmed, null);
+    }
+
+    /**
+     * 单轮对话，携带可选的客户端幂等键。
+     *
+     * <p>{@code requestId} 只在图片生成路径上使用，用于把客户端的 HTTP 重试收敛到同一个付费任务；
+     * 文字回答路径没有需要去重的副作用，因此忽略该值。传 null 等价于旧客户端行为。
+     */
+    public Flux<ChatEventVO> chat(
+            String question, ConversationSession session, List<ChatAttachmentRequest> attachments,
+            boolean imageGenerationConfirmed, String requestId) {
         Instant receivedAt = Instant.now();
 
         if (session == null) {
@@ -65,6 +80,16 @@ public class ChatService {
         if (invalid != null) {
             return withCompletionLogging(
                     Flux.just(errorEvent(invalid), stopEvent()),
+                    session.conversationId(),
+                    receivedAt);
+        }
+
+        // 2.0. 请求键：空白视为旧客户端未传；非空但不是 UUID 时明确拒绝，避免静默退化成无幂等请求。
+        String clientRequestId = requestId == null || requestId.isBlank() ? null : requestId.trim();
+
+        if (clientRequestId != null && !UUID_PATTERN.matcher(clientRequestId).matches()) {
+            return withCompletionLogging(
+                    Flux.just(errorEvent("请求标识格式不正确，请刷新页面后重试"), stopEvent()),
                     session.conversationId(),
                     receivedAt);
         }
@@ -100,7 +125,7 @@ public class ChatService {
                             return Flux.just(sessionInfoEvent(session.conversationId(), session.created()),
                                     waitingEvent("图片创作需要本次明确确认，请选择图片生成模式或确认本次生成、编辑操作。"), stopEvent());
                         }
-                        return generateImage(question, session, attachment, receivedAt);
+                        return generateImage(question, session, attachment, receivedAt, clientRequestId);
                     }
                     if (intent == ConversationIntent.DESCRIBE || question == null || question.isBlank()) {
                         return imageAnalysis(question, session, attachment, intent, receivedAt);
@@ -113,7 +138,7 @@ public class ChatService {
     }
 
     private Flux<ChatEventVO> generateImage(String question, ConversationSession session,
-            ChatAttachmentRequest attachment, Instant receivedAt) {
+            ChatAttachmentRequest attachment, Instant receivedAt, String requestId) {
         // 2.4. 图片生成路径：创建后台任务，并把任务 ID 和确认消息返回当前对话。
         String prompt = question == null || question.isBlank() ? DEFAULT_PROMPT : question.trim();
         String acknowledgement = "已收到照片，正在后台生成一张图片。完成后结果会回到当前对话。";
@@ -125,17 +150,29 @@ public class ChatService {
                                 prompt,
                                 attachment.getAssetId(),
                                 session.identity().userId(),
-                                session.identity().tenantId())
+                                session.identity().tenantId(),
+                                requestId)
                         .flatMap(
                                 job ->
                                         Mono.fromCallable(
                                                         () -> {
                                                             // 2.4.1. 任务创建成功后才保存这一轮确认消息，避免记录不存在的任务。
-                                                            conversations.appendTurn(
-                                                                    session,
-                                                                    prompt,
-                                                                    acknowledgement,
-                                                                    true);
+                                                            // 但保存失败不能翻转“任务已受理”这个事实：一旦把已创建的任务
+                                                            // 报成“创建失败”，客户端就会重建，产生第二次付费生成。
+                                                            try {
+                                                                conversations.appendTurn(
+                                                                        session,
+                                                                        prompt,
+                                                                        acknowledgement,
+                                                                        true);
+                                                            } catch (RuntimeException writeFailure) {
+                                                                log.error(
+                                                                        "[chat] image_job_accepted_but_turn_not_persisted jobId={} cid={} errorType={} message={}",
+                                                                        job.jobId(),
+                                                                        conversationId,
+                                                                        writeFailure.getClass().getSimpleName(),
+                                                                        writeFailure.getMessage());
+                                                            }
                                                             return job;
                                                         })
                                                 .subscribeOn(Schedulers.boundedElastic()));
